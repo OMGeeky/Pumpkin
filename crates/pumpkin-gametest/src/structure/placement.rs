@@ -250,6 +250,9 @@ pub async fn place_structure_with_controller_rotation(
     // block events in the test box after replacement. This prevents deferred work
     // from attempt N from executing against attempt N+1.
     world
+        .clear_non_player_entities(&test_min, &test_max)
+        .await?;
+    world
         .clear_scheduled_block_ticks(&test_min, &test_max)
         .await?;
     world.clear_block_events(&test_min, &test_max).await?;

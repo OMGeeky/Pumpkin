@@ -18,11 +18,13 @@ pub use manager::{
     GameTestBatchReport, GameTestManager, GameTestReporter, GameTestRetryOptions, GameTestRunner,
 };
 pub use model::{GameTestDefinition, GameTestRotation, TestType};
+pub use pumpkin_nbt::compound::NbtCompound;
 pub use runner::{GameTestSession, GameTestState, TestRunner};
 pub use structure::{
-    GameTestPosition, GameTestStructureBlock, GameTestStructureTemplate, TestBlockMode,
-    TestStructureInstance, clear_structure_area, encase_structure, place_structure,
-    place_structure_with_controller_rotation, remove_barriers,
+    GameTestPosition, GameTestStructureBlock, GameTestStructureTemplate, StructureMismatch,
+    TestBlockMode, TestStructureInstance, clear_structure_area, encase_structure,
+    format_canonical_block_state, nbt_compound_to_relative_json, parse_canonical_block_state,
+    place_structure, place_structure_with_controller_rotation, remove_barriers,
 };
 pub use world::GameTestWorld;
 
@@ -362,5 +364,63 @@ mod tests {
         assert!(report.is_done());
         assert!(report.all_required_passed());
         assert_eq!(report.failed_required(), 0);
+    }
+
+    #[test]
+    fn round_trips_structure_nbt_and_compares_blocks_and_block_entities() {
+        let mut be_nbt = NbtCompound::new();
+        be_nbt.put_string("id", "minecraft:comparator".to_string());
+        be_nbt.put_int("OutputSignal", 15);
+
+        #[expect(clippy::expect_used, reason = "unit test assertion")]
+        let expected = GameTestStructureTemplate::new(
+            [2, 2, 1],
+            vec![
+                GameTestStructureBlock {
+                    position: [0, 0, 0],
+                    state: Block::STONE.default_state.id,
+                    nbt: None,
+                    test_mode: None,
+                },
+                GameTestStructureBlock {
+                    position: [1, 1, 0],
+                    state: Block::COMPARATOR.default_state.id,
+                    nbt: Some(be_nbt.clone()),
+                    test_mode: None,
+                },
+            ],
+        )
+        .expect("valid expected structure");
+
+        #[expect(clippy::expect_used, reason = "unit test assertion")]
+        let bytes = expected.to_gzip_bytes().expect("gzip encode");
+        #[expect(clippy::expect_used, reason = "unit test assertion")]
+        let decoded = GameTestStructureTemplate::from_gzip_bytes(&bytes).expect("gzip decode");
+        assert!(decoded.compare(&expected).is_empty());
+
+        let mut wrong_be = be_nbt;
+        wrong_be.put_int("OutputSignal", 7);
+        #[expect(clippy::expect_used, reason = "unit test assertion")]
+        let actual = GameTestStructureTemplate::new(
+            [2, 2, 1],
+            vec![
+                GameTestStructureBlock {
+                    position: [0, 0, 0],
+                    state: Block::COBBLESTONE.default_state.id,
+                    nbt: None,
+                    test_mode: None,
+                },
+                GameTestStructureBlock {
+                    position: [1, 1, 0],
+                    state: Block::COMPARATOR.default_state.id,
+                    nbt: Some(wrong_be),
+                    test_mode: None,
+                },
+            ],
+        )
+        .expect("valid actual structure");
+
+        let diffs = actual.compare(&expected);
+        assert_eq!(diffs.len(), 2);
     }
 }

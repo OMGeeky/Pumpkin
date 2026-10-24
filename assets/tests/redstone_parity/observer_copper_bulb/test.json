@@ -1,0 +1,24 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "use_block",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 3,
+      "nbt": "tick_3.nbt"
+    },
+    {
+      "tick": 6,
+      "nbt": "tick_6.nbt"
+    }
+  ]
+}

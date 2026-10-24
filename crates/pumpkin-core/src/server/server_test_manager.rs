@@ -5,9 +5,9 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use async_trait::async_trait;
 use pumpkin_data::{BlockState, BlockStateId};
 use pumpkin_gametest::{
-    BlockBasedTest, GameTestError, GameTestManager, GameTestReporter, GameTestResult,
-    GameTestRotation, GameTestRunner, GameTestSession, GameTestStructureTemplate, GameTestWorld,
-    TestType,
+    BlockBasedTest, GameTestDefinition, GameTestError, GameTestManager, GameTestReporter,
+    GameTestResult, GameTestRotation, GameTestRunner, GameTestSession, GameTestStructureTemplate,
+    GameTestWorld, TestType,
 };
 pub use pumpkin_gametest::{GameTestBatchReport, GameTestRetryOptions};
 use pumpkin_nbt::NbtCompound;
@@ -59,6 +59,7 @@ pub struct GameTestQueueEntry {
     rotation_steps: i32,
     retry_options: GameTestRetryOptions,
     report: Arc<GameTestBatchReport>,
+    custom_test: Option<(GameTestDefinition, GameTestStructureTemplate)>,
 }
 
 impl GameTestQueueEntry {
@@ -81,12 +82,23 @@ impl GameTestQueueEntry {
             rotation_steps,
             retry_options,
             report,
+            custom_test: None,
         }
     }
 
     #[must_use]
     pub const fn with_y(mut self, test_y: i32) -> Self {
         self.test_y = Some(test_y);
+        self
+    }
+
+    #[must_use]
+    pub fn with_custom_test(
+        mut self,
+        definition: GameTestDefinition,
+        template: GameTestStructureTemplate,
+    ) -> Self {
+        self.custom_test = Some((definition, template));
         self
     }
 }
@@ -172,17 +184,23 @@ pub async fn prepare_test_run_with_reporter(
     report_sink: Arc<dyn GameTestReporter>,
 ) -> GameTestResult<GameTestManager> {
     crate::server::builtin_game_tests::ensure_builtin_game_tests_registered();
-    let test_instance = server
-        .datapack_manager
-        .get_test_instance(&request.test_id)
-        .or_else(|| {
-            pumpkin_gametest::registered_test_definitions()
-                .into_iter()
-                .find_map(|(id, def)| (id == request.test_id).then_some(def))
-        })
-        .ok_or_else(|| {
-            GameTestError::World(format!("Unknown test instance '{}'", request.test_id))
-        })?;
+    let (test_instance, custom_template) = if let Some((definition, template)) = request.custom_test
+    {
+        (definition, Some(template))
+    } else {
+        let def = server
+            .datapack_manager
+            .get_test_instance(&request.test_id)
+            .or_else(|| {
+                pumpkin_gametest::registered_test_definitions()
+                    .into_iter()
+                    .find_map(|(id, def)| (id == request.test_id).then_some(def))
+            })
+            .ok_or_else(|| {
+                GameTestError::World(format!("Unknown test instance '{}'", request.test_id))
+            })?;
+        (def, None)
+    };
 
     let function = match test_instance.instance_type {
         TestType::BlockBased => None,
@@ -203,14 +221,18 @@ pub async fn prepare_test_run_with_reporter(
         }
     };
 
-    let template = match server
-        .datapack_manager
-        .load_structure(&test_instance.structure)
-        .await
-    {
-        Ok(structure) => GameTestStructureTemplate::from_nbt(&structure)?,
-        Err(error) => GameTestStructureTemplate::parse_empty_id(&test_instance.structure)
-            .ok_or(GameTestError::World(error))?,
+    let template = if let Some(template) = custom_template {
+        template
+    } else {
+        match server
+            .datapack_manager
+            .load_structure(&test_instance.structure)
+            .await
+        {
+            Ok(structure) => GameTestStructureTemplate::from_nbt(&structure)?,
+            Err(error) => GameTestStructureTemplate::parse_empty_id(&test_instance.structure)
+                .ok_or(GameTestError::World(error))?,
+        }
     };
     let mut test = BlockBasedTest::new(request.test_id, test_instance);
     if let Some(function) = function {
@@ -521,6 +543,7 @@ impl GameTestWorld for ServerGameTestWorld {
                 let chunk_pos = Vector2::new(chunk_x, chunk_z);
                 if let Some(chunk) = self.world.level.loaded_chunks.get(&chunk_pos) {
                     chunk.block_ticks.clear_area(min, max);
+                    chunk.fluid_ticks.clear_area(min, max);
                     if !chunk.block_ticks.has_ticks() && !chunk.fluid_ticks.has_ticks() {
                         self.world
                             .level

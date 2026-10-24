@@ -1,0 +1,33 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "tick": 6,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        2,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 4,
+      "nbt": "locked_tick_4.nbt"
+    },
+    {
+      "tick": 10,
+      "nbt": "unlocked_tick_10.nbt"
+    }
+  ]
+}

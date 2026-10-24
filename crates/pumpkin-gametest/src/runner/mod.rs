@@ -228,7 +228,8 @@ impl GameTestSession {
         let tick = elapsed_ticks.saturating_add(1);
         if tick > self.test.max_ticks() {
             if self.test.instance_type() == TestType::Function {
-                match self.evaluate_function_tick(tick, true).await {
+                let eval = self.evaluate_function_tick(tick, true).await;
+                match eval {
                     Ok(RunningEvaluation::Passed) => {
                         self.handle_attempt_pass(tick).await;
                         return;

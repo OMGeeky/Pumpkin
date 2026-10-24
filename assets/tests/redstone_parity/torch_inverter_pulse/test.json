@@ -1,0 +1,24 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "press_button",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 8,
+      "nbt": "tick_8.nbt"
+    },
+    {
+      "tick": 28,
+      "nbt": "tick_28.nbt"
+    }
+  ]
+}

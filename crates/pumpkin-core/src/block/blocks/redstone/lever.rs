@@ -106,7 +106,7 @@ impl WallMountedBlock for LeverBlock {
 }
 
 impl LeverBlock {
-    pub(crate) fn pull(world: &Arc<World>, block_pos: &BlockPos) {
+    pub fn pull(world: &Arc<World>, block_pos: &BlockPos) {
         let (block, state) = world.get_block_and_state_id(block_pos);
 
         let mut lever_props = LeverLikeProperties::from_state_id(state);

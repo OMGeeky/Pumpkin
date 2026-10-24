@@ -2,6 +2,7 @@ mod bot;
 mod bot_tests;
 mod gametests;
 mod harness;
+mod redstone_parity;
 
 use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Instant};
 
@@ -13,9 +14,13 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 async fn run_all_suites(server: &Arc<Server>, addr: SocketAddr) -> Result<Vec<String>, String> {
     let mut summary_lines = Vec::new();
     let mut runner = GameTestRunner::new();
+    let only_parity = std::env::args().any(|arg| arg == "--only-parity");
 
-    bot_tests::run_bot_tests(server, addr, &mut runner, &mut summary_lines).await?;
-    gametests::run_gametests(server, &mut runner, &mut summary_lines).await?;
+    if !only_parity {
+        bot_tests::run_bot_tests(server, addr, &mut runner, &mut summary_lines).await?;
+        gametests::run_gametests(server, &mut runner, &mut summary_lines).await?;
+    }
+    redstone_parity::run_redstone_parity_suite(server, &mut runner, &mut summary_lines).await?;
 
     Ok(summary_lines)
 }

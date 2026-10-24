@@ -1,8 +1,8 @@
 use pumpkin_data::block_rotation::Rotation;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub enum TestType {
     #[serde(rename = "minecraft:block_based")]
     BlockBased,
@@ -20,7 +20,7 @@ impl TestType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub enum GameTestRotation {
     #[default]
     #[serde(rename = "none")]
@@ -77,13 +77,13 @@ impl GameTestRotation {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct GameTestDefinition {
     #[serde(rename = "type")]
     pub instance_type: TestType,
     pub environment: Value,
     pub structure: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function: Option<String>,
     pub max_ticks: i32,
     #[serde(default)]
