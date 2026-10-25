@@ -159,17 +159,18 @@ impl SynchedEntityData {
         let mut buf = Vec::new();
         let mut has_any = false;
 
-        for item in items.values() {
-            if item.dirty {
-                let before_len = buf.len();
-                if item
-                    .serializer
-                    .write(item.tracked.id, item.tracked.r#type, &mut buf, version)
-                    .is_ok()
-                    && buf.len() > before_len
-                {
-                    has_any = true;
-                }
+        let mut dirty_items: Vec<_> = items.values().filter(|item| item.dirty).collect();
+        dirty_items.sort_unstable_by(|a, b| a.canonical_bytes.cmp(&b.canonical_bytes));
+
+        for item in dirty_items {
+            let before_len = buf.len();
+            if item
+                .serializer
+                .write(item.tracked.id, item.tracked.r#type, &mut buf, version)
+                .is_ok()
+                && buf.len() > before_len
+            {
+                has_any = true;
             }
         }
 
@@ -206,17 +207,19 @@ impl SynchedEntityData {
         let mut buf = Vec::new();
         let mut has_any = false;
 
-        for item in items.values() {
-            if !item.is_default {
-                let before_len = buf.len();
-                if item
-                    .serializer
-                    .write(item.tracked.id, item.tracked.r#type, &mut buf, version)
-                    .is_ok()
-                    && buf.len() > before_len
-                {
-                    has_any = true;
-                }
+        let mut non_default_items: Vec<_> =
+            items.values().filter(|item| !item.is_default).collect();
+        non_default_items.sort_unstable_by(|a, b| a.canonical_bytes.cmp(&b.canonical_bytes));
+
+        for item in non_default_items {
+            let before_len = buf.len();
+            if item
+                .serializer
+                .write(item.tracked.id, item.tracked.r#type, &mut buf, version)
+                .is_ok()
+                && buf.len() > before_len
+            {
+                has_any = true;
             }
         }
 

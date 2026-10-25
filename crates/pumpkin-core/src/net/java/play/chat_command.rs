@@ -2,7 +2,7 @@
 use super::*;
 
 impl JavaClient {
-    pub async fn handle_chat_command(
+    pub fn handle_chat_command(
         &self,
         player: &Arc<Player>,
         server: &Arc<Server>,
@@ -15,7 +15,7 @@ impl JavaClient {
         // Keep a leading slash: a client typing `//wand` (WorldEdit style) sends `/wand`, and the
         // dispatcher decides itself whether that slash belongs to the command name or is a prefix.
         let command_str = command.command;
-        send_cancellable! {{
+        send_cancellable_blocking! {{
             server;
             PlayerCommandSendEvent {
                 player: player.clone(),

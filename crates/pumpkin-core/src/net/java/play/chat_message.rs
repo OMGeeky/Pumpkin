@@ -13,8 +13,7 @@ impl JavaClient {
 
         if let Some(command) = chat_message.message.strip_prefix('/') {
             let command_packet = SChatCommand { command };
-            self.handle_chat_command(player, server, &command_packet)
-                .await;
+            self.handle_chat_command(player, server, &command_packet);
             return;
         }
 

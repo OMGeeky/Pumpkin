@@ -780,40 +780,18 @@ impl JavaClient {
             }
             id if id == SChatCommand::to_id(version) => {
                 let packet = SChatCommand::read(&mut payload, &version)?;
-                let cmd = packet.command.to_string();
-                let client_platform = player.client.clone();
-                let player_c = player.clone();
-                let server_c = server.clone();
-                server.spawn_task(async move {
-                    if let ClientPlatform::Java(client) = client_platform.as_ref() {
-                        let packet = SChatCommand { command: &cmd };
-                        client
-                            .handle_chat_command(&player_c, &server_c, &packet)
-                            .await;
-                    }
-                });
+                self.handle_chat_command(player, server, &packet);
             }
             id if id == SChatCommandSigned::to_id(version) => {
                 let mut signed_payload = payload;
                 let cmd =
                     if let Ok(signed) = SChatCommandSigned::read(&mut signed_payload, &version) {
-                        signed.command.to_string()
+                        signed.command
                     } else {
-                        SChatCommand::read(&mut payload, &version)?
-                            .command
-                            .to_string()
+                        SChatCommand::read(&mut payload, &version)?.command
                     };
-                let client_platform = player.client.clone();
-                let player_c = player.clone();
-                let server_c = server.clone();
-                server.spawn_task(async move {
-                    if let ClientPlatform::Java(client) = client_platform.as_ref() {
-                        let packet = SChatCommand { command: &cmd };
-                        client
-                            .handle_chat_command(&player_c, &server_c, &packet)
-                            .await;
-                    }
-                });
+                let packet = SChatCommand { command: cmd };
+                self.handle_chat_command(player, server, &packet);
             }
             id if id == SChatMessage::to_id(version) => {
                 let packet = SChatMessage::read(&mut payload, &version)?;
