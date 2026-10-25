@@ -71,6 +71,11 @@ impl JavaClient {
             .currently_editing_player()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        let state_id = world.get_block_state_id(&sign_data.location);
+        world.broadcast_to_chunk(
+            sign_data.location.chunk_position(),
+            &CBlockUpdate::new(sign_data.location, i32::from(state_id.as_u16()).into()),
+        );
         world.update_block_entity(&block_entity);
     }
 }

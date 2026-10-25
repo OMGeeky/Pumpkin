@@ -6,7 +6,7 @@ use pumpkin_data::item_stack::ItemStack;
 use pumpkin_data::tag;
 use pumpkin_data::tag::Taggable;
 use pumpkin_data::{BlockId, BlockStateId};
-use pumpkin_inventory::{Clearable, Inventory, sync_write_items_to_nbt};
+use pumpkin_inventory::{Clearable, Inventory};
 use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_nbt::tag::NbtTag;
 use pumpkin_util::math::position::BlockPos;
@@ -143,18 +143,6 @@ impl BlockEntity for HopperBlockEntity {
 
     fn clear_dirty(&self) {
         self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    fn chunk_data_nbt(&self) -> Option<NbtCompound> {
-        let mut nbt = NbtCompound::new();
-        nbt.put(
-            "TransferCooldown",
-            NbtTag::Int(self.cooldown_time.load(Ordering::Relaxed)),
-        );
-        if let Ok(items) = self.items.try_read() {
-            sync_write_items_to_nbt(items.as_slice(), &mut nbt);
-        }
-        Some(nbt)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

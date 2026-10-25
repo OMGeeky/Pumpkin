@@ -108,21 +108,6 @@ macro_rules! impl_block_entity_for_chest {
                     .store(false, std::sync::atomic::Ordering::Relaxed);
             }
 
-            fn chunk_data_nbt(&self) -> Option<pumpkin_nbt::compound::NbtCompound> {
-                let mut nbt = pumpkin_nbt::compound::NbtCompound::new();
-                let has_loot_table = self
-                    .loot_table
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .is_some();
-                if !has_loot_table {
-                    if let Ok(items) = self.items.try_read() {
-                        pumpkin_inventory::sync_write_items_to_nbt(&*items, &mut nbt);
-                    }
-                }
-                Some(nbt)
-            }
-
             fn as_any(&self) -> &dyn std::any::Any {
                 self
             }

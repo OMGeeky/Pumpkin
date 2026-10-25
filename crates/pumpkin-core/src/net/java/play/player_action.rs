@@ -99,8 +99,9 @@ impl JavaClient {
                             server
                                 .block_registry
                                 .broken(&world, block, player, &position, server, state);
+                        } else {
+                            self.sync_block_state_to_client(&world, position);
                         }
-                        self.sync_block_state_to_client(&world, position);
                         self.update_sequence(player_action.sequence.0);
                         return;
                     }
@@ -143,8 +144,9 @@ impl JavaClient {
                                     block.id.as_u16() as i32,
                                     1,
                                 );
+                            } else {
+                                self.sync_block_state_to_client(&world, position);
                             }
-                            self.sync_block_state_to_client(&world, position);
                         } else {
                             player.mining.store(true, Ordering::Relaxed);
                             *player
@@ -249,9 +251,9 @@ impl JavaClient {
                             block.id.as_u16() as i32,
                             1,
                         );
+                    } else {
+                        self.sync_block_state_to_client(&world, location);
                     }
-
-                    self.sync_block_state_to_client(&world, location);
 
                     self.update_sequence(player_action.sequence.0);
                 }

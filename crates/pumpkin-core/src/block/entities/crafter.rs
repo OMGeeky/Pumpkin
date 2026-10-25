@@ -142,30 +142,6 @@ impl BlockEntity for CrafterBlockEntity {
         self.dirty.store(false, Ordering::Relaxed);
     }
 
-    fn chunk_data_nbt(&self) -> Option<NbtCompound> {
-        let mut nbt = NbtCompound::new();
-        if let Ok(items) = self.items.try_read() {
-            sync_write_items_to_nbt(items.as_slice(), &mut nbt);
-        }
-        nbt.put_int(
-            "crafting_ticks_remaining",
-            self.crafting_ticks_remaining.load(Ordering::Relaxed),
-        );
-        nbt.put_int(
-            "triggered",
-            i32::from(self.triggered.load(Ordering::Relaxed)),
-        );
-        if let Ok(disabled) = self.disabled_slots.try_read() {
-            let disabled_vec: Vec<i32> = disabled
-                .iter()
-                .enumerate()
-                .filter_map(|(i, &d)| d.then_some(i as i32))
-                .collect();
-            nbt.put("disabled_slots", NbtTag::IntArray(disabled_vec));
-        }
-        Some(nbt)
-    }
-
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

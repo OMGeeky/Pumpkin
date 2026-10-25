@@ -11,7 +11,7 @@ use std::{array::from_fn, sync::Arc};
 use crate::block::entities::BlockEntity;
 use crate::block::viewer::{ViewerCountListener, ViewerCountTracker, ViewerCountTrackerExt};
 use crate::world::World;
-use pumpkin_inventory::{Clearable, Inventory, sync_write_items_to_nbt};
+use pumpkin_inventory::{Clearable, Inventory};
 
 pub struct ShulkerBoxBlockEntity {
     pub position: BlockPos,
@@ -126,14 +126,6 @@ impl BlockEntity for ShulkerBoxBlockEntity {
 
     fn clear_dirty(&self) {
         self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    fn chunk_data_nbt(&self) -> Option<NbtCompound> {
-        let mut nbt = NbtCompound::new();
-        if let Ok(items) = self.items.try_read() {
-            sync_write_items_to_nbt(items.as_slice(), &mut nbt);
-        }
-        Some(nbt)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

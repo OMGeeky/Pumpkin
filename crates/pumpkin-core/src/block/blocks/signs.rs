@@ -38,7 +38,7 @@ use crate::item::items::glowing_ink_sac::GlowingInkSacItem;
 use crate::item::items::honeycomb::HoneyCombItem;
 use crate::item::items::ink_sac::InkSacItem;
 use crate::world::World;
-use pumpkin_protocol::java::client::play::COpenSignEditor;
+use pumpkin_protocol::java::client::play::{CBlockUpdate, COpenSignEditor};
 
 #[pumpkin_block_from_tag("minecraft:all_signs")]
 pub struct SignBlock;
@@ -365,10 +365,10 @@ impl BlockBehaviour for SignBlock {
         if let Some(block_entity) = args.world.get_block_entity(args.position)
             && let Some(sign) = SignEntityRef::from_block_entity(&*block_entity)
         {
-            args.world.update_block_entity(&block_entity);
             if !sign.is_waxed() && has_editable_text(sign.front_text()) {
                 open_text_edit(
                     args.player,
+                    args.world,
                     sign.currently_editing_player(),
                     args.position,
                     true,
@@ -376,6 +376,11 @@ impl BlockBehaviour for SignBlock {
             }
             return;
         }
+        let state_id = args.world.get_block_state_id(args.position);
+        args.player.try_send_client_packet(&CBlockUpdate::new(
+            *args.position,
+            i32::from(state_id.as_u16()).into(),
+        ));
         args.player
             .try_send_client_packet(&COpenSignEditor::new(*args.position, true));
     }
@@ -546,6 +551,7 @@ impl BlockBehaviour for SignBlock {
         {
             open_text_edit(
                 args.player,
+                args.world,
                 sign_entity.currently_editing_player(),
                 args.position,
                 is_front_text,
@@ -626,6 +632,7 @@ impl BlockBehaviour for SignBlock {
 /// Opens the sign text edit interface for the player and registers them as allowed editor.
 fn open_text_edit(
     player: &Player,
+    world: &World,
     currently_editing_player: &Arc<Mutex<Option<Uuid>>>,
     position: &BlockPos,
     is_front_text: bool,
@@ -633,6 +640,11 @@ fn open_text_edit(
     *currently_editing_player
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(player.gameprofile.id);
+    let state_id = world.get_block_state_id(position);
+    player.try_send_client_packet(&CBlockUpdate::new(
+        *position,
+        i32::from(state_id.as_u16()).into(),
+    ));
     player.try_send_client_packet(&COpenSignEditor::new(*position, is_front_text));
 }
 

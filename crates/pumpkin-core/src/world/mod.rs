@@ -786,7 +786,10 @@ impl World {
             tick: VarULong(0),
             ambient: false,
         };
-        self.send_to_tracking_players_and_self_editioned(entity, &je_packet, &be_packet);
+        if let Some(player) = self.get_player_by_id(entity.entity_id) {
+            player.try_send_client_packet(&je_packet);
+        }
+        self.broadcast_to_chunk_bedrock(entity.chunk_pos.load(), &be_packet);
     }
 
     pub fn send_add_mob_effect(&self, entity: &Entity, effect: &pumpkin_data::potion::Effect) {
@@ -5539,7 +5542,7 @@ impl World {
             && broken_block != &Block::SOUL_FIRE
         {
             let je_packet = CWorldEvent::new(
-                WorldEvent::ParticlesDestroyBlock as i32,
+                WorldEvent::ParticlesAndSoundDestroyBlock as i32,
                 *position,
                 broken_state_id.as_u16().into(),
                 false,
@@ -6470,34 +6473,15 @@ impl World {
     pub fn add_block_entity(&self, block_entity: Arc<dyn BlockEntity>) {
         let block_pos = block_entity.get_position();
         let chunk_pos = block_pos.chunk_position();
-        let block_entity_nbt = block_entity.chunk_data_nbt();
-        let entity_id = block_entity.resource_location().to_string();
 
-        if let Some(nbt) = &block_entity_nbt {
-            let bytes = pumpkin_nbt::Nbt::from(nbt.clone()).write_unnamed();
-            self.broadcast_to_chunk(
-                chunk_pos,
-                &CBlockEntityData::new(
-                    block_entity.get_position(),
-                    VarInt(block_entity.get_id() as i32),
-                    bytes.as_ref().into(),
-                ),
-            );
-        }
+        let mut full_nbt = NbtCompound::new();
+        block_entity.write_internal(&mut full_nbt);
+        self.add_block_entity_nbt(block_pos, &full_nbt);
 
         self.block_entities
             .entry(chunk_pos)
             .or_default()
             .insert(block_pos, block_entity);
-
-        if let Some(nbt) = block_entity_nbt {
-            let mut full_nbt = nbt;
-            full_nbt.put_string("id", entity_id);
-            full_nbt.put_int("x", block_pos.0.x);
-            full_nbt.put_int("y", block_pos.0.y);
-            full_nbt.put_int("z", block_pos.0.z);
-            self.add_block_entity_nbt(block_pos, &full_nbt);
-        }
 
         self.level.read_chunk_sync(&chunk_pos, |chunk| {
             chunk.mark_dirty(true);
@@ -6575,8 +6559,8 @@ impl World {
                 .block_entities
                 .get(&chunk_pos)
                 .is_some_and(|m| m.contains_key(&pos));
-            if !already_loaded && let Some(entity) = self.get_block_entity(&pos) {
-                self.update_block_entity(&entity);
+            if !already_loaded {
+                let _ = self.get_block_entity(&pos);
             }
         }
     }
@@ -6596,14 +6580,10 @@ impl World {
                     bytes.as_ref().into(),
                 ),
             );
-            let mut full_nbt = nbt.clone();
-            full_nbt.put_string("id", block_entity.resource_location().to_string());
-            let pos = block_entity.get_position();
-            full_nbt.put_int("x", pos.0.x);
-            full_nbt.put_int("y", pos.0.y);
-            full_nbt.put_int("z", pos.0.z);
-            self.add_block_entity_nbt(block_pos, &full_nbt);
         }
+        let mut full_nbt = NbtCompound::new();
+        block_entity.write_internal(&mut full_nbt);
+        self.add_block_entity_nbt(block_pos, &full_nbt);
         self.level.read_chunk_sync(&chunk_pos, |chunk| {
             chunk.mark_dirty(true);
         });
