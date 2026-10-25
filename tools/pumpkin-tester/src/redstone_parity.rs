@@ -1,6 +1,7 @@
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,6 +21,7 @@ use pumpkin_data::{
         OakDoorLikeProperties, OakTrapdoorLikeProperties, RepeaterLikeProperties,
     },
     dimension::Dimension,
+    packet::{CURRENT_MC_VERSION, clientbound::play as c_play},
     sound::{Sound, SoundCategory},
 };
 use pumpkin_gametest::{
@@ -27,21 +29,33 @@ use pumpkin_gametest::{
     parse_canonical_block_state,
 };
 use pumpkin_protocol::{
-    VarInt,
+    PositionFlag, ServerPacket, VarInt,
     codec::var_long::VarLong,
-    java::server::play::{SSetStructureBlock, SUseItemOn},
+    java::{
+        client::play::{CKeepAlive, CPlayerPosition},
+        server::play::{
+            SChunkBatch, SConfirmTeleport, SKeepAlive, SPlayPingRequest, SSetStructureBlock,
+            SUseItemOn,
+        },
+    },
+    ser::NetworkReadExt,
 };
 use pumpkin_util::{
     Hand,
     math::{position::BlockPos, vector2::Vector2, vector3::Vector3},
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use tempfile::TempDir;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    process::{Child, ChildStdin, Command},
+    sync::mpsc::{UnboundedReceiver, unbounded_channel},
+    time::Instant,
+};
 
-use crate::lockstep::{client::LockstepBot, peer::ExternalJavaServerProcess};
+use crate::bot::HeadlessBot;
 
 const PARITY_ORIGIN: BlockPos = BlockPos::new(160, 200, 160);
-const JAVA_RECORDER_BOT_UUID: Uuid = Uuid::from_u128(0x0000_0000_0000_3000_8000_0000_0000_0001);
 
 /// Declarative `test.json` manifest inside a contraption test directory.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -535,13 +549,8 @@ async fn record_contraptions_on_java(
     java_jar: &Path,
     contraption_dirs: &[PathBuf],
 ) -> Result<(), String> {
-    let mut java_proc =
-        ExternalJavaServerProcess::connect_or_spawn(Some(java_jar), None::<SocketAddr>, None)
-            .await?;
-    let temp_root = java_proc
-        .temp_dir_path
-        .clone()
-        .ok_or_else(|| "Java server process has no temp directory".to_string())?;
+    let mut java_proc = JavaRecorderServer::spawn(java_jar).await?;
+    let temp_root = java_proc.temp_dir_path.clone();
     let res = record_contraptions_on_java_inner(&mut java_proc, &temp_root, contraption_dirs).await;
     if let Err(err) = res {
         let log_path = temp_root.join("logs").join("latest.log");
@@ -562,7 +571,7 @@ async fn record_contraptions_on_java(
     reason = "Coordinates external Vanilla Java structure placement, actions, and .nbt export"
 )]
 async fn record_contraptions_on_java_inner(
-    java_proc: &mut ExternalJavaServerProcess,
+    java_proc: &mut JavaRecorderServer,
     temp_root: &Path,
     contraption_dirs: &[PathBuf],
 ) -> Result<(), String> {
@@ -578,8 +587,10 @@ async fn record_contraptions_on_java_inner(
     let oy = PARITY_ORIGIN.0.y;
     let oz = PARITY_ORIGIN.0.z;
 
-    let mut bot =
-        LockstepBot::connect_and_login(java_proc.addr, "LockBot1", JAVA_RECORDER_BOT_UUID).await?;
+    let mut bot = HeadlessBot::connect_and_join(java_proc.addr, "LockBot1").await?;
+    let mut ping_nonce = 1000i64;
+    let mut sequence_counter = 0i32;
+
     for cmd in [
         "op LockBot1".to_string(),
         "gamemode creative LockBot1".to_string(),
@@ -590,12 +601,12 @@ async fn record_contraptions_on_java_inner(
     }
     for _ in 0..4 {
         java_proc.wait_for_console_barrier().await?;
-        bot.drain_until_pong(Duration::from_secs(5)).await?;
+        drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5)).await?;
     }
     java_proc.send_console_command("tick freeze").await?;
     java_proc.wait_for_console_barrier().await?;
     java_proc.wait_for_console_barrier().await?;
-    bot.drain_until_pong(Duration::from_secs(5)).await?;
+    drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5)).await?;
 
     for dir in contraption_dirs {
         let name = dir
@@ -638,7 +649,7 @@ async fn record_contraptions_on_java_inner(
             java_proc.send_console_command(&cmd).await?;
         }
         java_proc.wait_for_console_barrier().await?;
-        bot.drain_until_pong(Duration::from_secs(5)).await?;
+        drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5)).await?;
 
         let max_tick = manifest
             .actions
@@ -651,7 +662,7 @@ async fn record_contraptions_on_java_inner(
         for tick in 0..=max_tick {
             if tick > 0 {
                 java_proc.step_and_wait_tick().await?;
-                bot.drain_until_pong(Duration::from_secs(5)).await?;
+                drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5)).await?;
             }
 
             for action in manifest.actions.iter().filter(|a| a.tick == tick) {
@@ -690,10 +701,11 @@ async fn record_contraptions_on_java_inner(
                             .await?;
                         java_proc.wait_for_console_barrier().await?;
                         java_proc.wait_for_console_barrier().await?;
-                        bot.drain_until_pong(Duration::from_secs(5)).await?;
+                        drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5))
+                            .await?;
                         java_proc.wait_for_console_barrier().await?;
                         java_proc.wait_for_console_barrier().await?;
-                        let seq = bot.next_sequence();
+                        sequence_counter += 1;
                         bot.send_packet(&SUseItemOn {
                             hand: VarInt(Hand::Left as i32),
                             position: BlockPos::new(wx, wy, wz),
@@ -701,10 +713,11 @@ async fn record_contraptions_on_java_inner(
                             cursor_pos: Vector3::new(0.5, 0.5, 0.5),
                             inside_block: false,
                             is_against_world_border: false,
-                            sequence: VarInt(seq),
+                            sequence: VarInt(sequence_counter),
                         })
                         .await?;
-                        bot.drain_until_pong(Duration::from_secs(5)).await?;
+                        drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5))
+                            .await?;
                         java_proc.wait_for_console_barrier().await?;
                         java_proc.wait_for_console_barrier().await?;
                     }
@@ -732,7 +745,7 @@ async fn record_contraptions_on_java_inner(
                     flags: SSetStructureBlock::FLAG_IGNORE_ENTITIES,
                 })
                 .await?;
-                bot.drain_until_pong(Duration::from_secs(5)).await?;
+                drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5)).await?;
                 java_proc.wait_for_console_barrier().await?;
                 java_proc.wait_for_console_barrier().await?;
 
@@ -751,6 +764,321 @@ async fn record_contraptions_on_java_inner(
 
     let _ = java_proc.send_console_command("stop").await;
     Ok(())
+}
+
+async fn drain_bot_until_pong(
+    bot: &mut HeadlessBot,
+    ping_nonce: &mut i64,
+    wait_timeout: Duration,
+) -> Result<(), String> {
+    *ping_nonce += 1;
+    let expected_nonce = *ping_nonce;
+    bot.send_packet(&SPlayPingRequest {
+        payload: expected_nonce,
+    })
+    .await?;
+
+    let v = CURRENT_MC_VERSION;
+    let pong_id = c_play::PONG_RESPONSE.to_id(v);
+    let disconnect_id = c_play::DISCONNECT.to_id(v);
+    let keep_alive_id = c_play::KEEP_ALIVE.to_id(v);
+    let player_pos_id = c_play::PLAYER_POSITION.to_id(v);
+    let chunk_batch_end_id = c_play::CHUNK_BATCH_FINISHED.to_id(v);
+
+    loop {
+        let pkt = match tokio::time::timeout(wait_timeout, bot.reader.get_raw_packet()).await {
+            Ok(Ok(pkt)) => pkt,
+            Ok(Err(e)) => return Err(format!("Bot '{}' packet decode error: {e}", bot.name)),
+            Err(_) => {
+                return Err(format!(
+                    "Timed out after {wait_timeout:?} waiting for packet on {}",
+                    bot.name
+                ));
+            }
+        };
+        let id = pkt.id;
+        let data = &pkt.payload[..];
+        if id == disconnect_id {
+            return Err(format!(
+                "Bot '{}' received DISCONNECT packet from server: {:?}",
+                bot.name,
+                String::from_utf8_lossy(data)
+            ));
+        }
+        if id == pong_id {
+            let mut slice = data;
+            if let Ok(nonce) = slice.get_i64_be()
+                && nonce == expected_nonce
+            {
+                break;
+            }
+            continue;
+        }
+        if id == keep_alive_id {
+            let mut slice = data;
+            if let Ok(ka) = CKeepAlive::read(&mut slice, &v) {
+                bot.send_packet(&SKeepAlive {
+                    keep_alive_id: ka.keep_alive_id,
+                })
+                .await?;
+            }
+            continue;
+        }
+        if id == chunk_batch_end_id {
+            bot.send_packet(&SChunkBatch {
+                chunks_per_tick: 25.0,
+            })
+            .await?;
+            continue;
+        }
+        if id == player_pos_id {
+            let mut slice = data;
+            if let Ok(pos) = CPlayerPosition::read(&mut slice, &v) {
+                if pos.relatives.contains(&PositionFlag::X) {
+                    bot.position.x += pos.position.x;
+                } else {
+                    bot.position.x = pos.position.x;
+                }
+                if pos.relatives.contains(&PositionFlag::Y) {
+                    bot.position.y += pos.position.y;
+                } else {
+                    bot.position.y = pos.position.y;
+                }
+                if pos.relatives.contains(&PositionFlag::Z) {
+                    bot.position.z += pos.position.z;
+                } else {
+                    bot.position.z = pos.position.z;
+                }
+                if pos.relatives.contains(&PositionFlag::YRot) {
+                    bot.yaw += pos.yaw;
+                } else {
+                    bot.yaw = pos.yaw;
+                }
+                if pos.relatives.contains(&PositionFlag::XRot) {
+                    bot.pitch += pos.pitch;
+                } else {
+                    bot.pitch = pos.pitch;
+                }
+                bot.send_packet(&SConfirmTeleport {
+                    teleport_id: pos.teleport_id,
+                    position: bot.position,
+                    yaw: bot.yaw,
+                    pitch: bot.pitch,
+                })
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+struct JavaRecorderServer {
+    addr: SocketAddr,
+    _child: Child,
+    stdin: ChildStdin,
+    stdout_rx: UnboundedReceiver<String>,
+    temp_dir_path: PathBuf,
+    _temp_dir: TempDir,
+}
+
+impl JavaRecorderServer {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Configures and spawns external Vanilla Java server subprocess for recording"
+    )]
+    async fn spawn(jar_path: &Path) -> Result<Self, String> {
+        if !jar_path.exists() {
+            return Err(format!(
+                "Java server jar does not exist at {}",
+                jar_path.display()
+            ));
+        }
+
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| format!("Failed to create temp dir for Java server: {e}"))?;
+        let temp_dir_path = temp_dir.path().to_path_buf();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .map_err(|e| format!("Failed to bind ephemeral port: {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to get local_addr: {e}"))?
+            .port();
+        drop(listener);
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+
+        fs::write(temp_dir_path.join("eula.txt"), "eula=true\n")
+            .map_err(|e| format!("Failed to write eula.txt: {e}"))?;
+
+        let server_props = format!(
+            "server-ip=127.0.0.1\n\
+             server-port={port}\n\
+             online-mode=false\n\
+             white-list=false\n\
+             enforce-whitelist=false\n\
+             enforce-secure-profile=false\n\
+             network-compression-threshold=-1\n\
+             spawn-protection=0\n\
+             level-type=minecraft\\:flat\n\
+             level-seed=0\n\
+             gamemode=survival\n\
+             difficulty=normal\n\
+             view-distance=6\n\
+             simulation-distance=6\n\
+             pause-when-empty-seconds=0\n\
+             enable-command-block=true\n\
+             max-tick-time=-1\n"
+        );
+        fs::write(temp_dir_path.join("server.properties"), server_props)
+            .map_err(|e| format!("Failed to write server.properties: {e}"))?;
+
+        let java_bin = resolve_java_binary();
+        let abs_jar = fs::canonicalize(jar_path)
+            .map_err(|e| format!("Failed to canonicalize jar path: {e}"))?;
+
+        let mut child = Command::new(&java_bin)
+            .current_dir(&temp_dir_path)
+            .arg("-Xmx2G")
+            .arg("-Xms1G")
+            .arg("-jar")
+            .arg(&abs_jar)
+            .arg("nogui")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                format!(
+                    "Failed to spawn Java server with {}: {e}",
+                    java_bin.display()
+                )
+            })?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Failed to capture Java server stdout".to_string())?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Failed to capture Java server stdin".to_string())?;
+
+        let mut reader = BufReader::new(stdout).lines();
+        let deadline = Instant::now() + Duration::from_secs(90);
+        let mut ready = false;
+        while Instant::now() < deadline {
+            if let Ok(Ok(Some(line))) =
+                tokio::time::timeout(Duration::from_secs(2), reader.next_line()).await
+                && line.contains("Done (")
+            {
+                ready = true;
+                break;
+            }
+        }
+        if !ready {
+            return Err("Timed out waiting for external Java server to finish booting".to_string());
+        }
+
+        let (stdout_tx, stdout_rx) = unbounded_channel();
+        tokio::spawn(async move {
+            let mut r = reader;
+            while let Ok(Some(line)) = r.next_line().await {
+                let _ = stdout_tx.send(line);
+            }
+        });
+
+        let mut proc = Self {
+            addr,
+            _child: child,
+            stdin,
+            stdout_rx,
+            temp_dir_path,
+            _temp_dir: temp_dir,
+        };
+
+        for cmd in [
+            "whitelist off",
+            "tick rate 1000",
+            "gamerule advance_time false",
+            "gamerule advance_weather false",
+            "gamerule spawn_mobs false",
+            "gamerule random_tick_speed 0",
+            "gamerule natural_health_regeneration false",
+            "gamerule send_command_feedback false",
+        ] {
+            proc.send_console_command(cmd).await?;
+        }
+        proc.wait_for_console_barrier().await?;
+
+        Ok(proc)
+    }
+
+    async fn send_console_command(&mut self, cmd: &str) -> Result<(), String> {
+        self.stdin
+            .write_all(format!("{cmd}\n").as_bytes())
+            .await
+            .map_err(|e| format!("Failed to send console command '{cmd}': {e}"))?;
+        self.stdin
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush console command '{cmd}': {e}"))
+    }
+
+    async fn wait_for_console_barrier(&mut self) -> Result<(), String> {
+        self.send_console_command("seed").await?;
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let rem = deadline.saturating_duration_since(Instant::now());
+            if rem.is_zero() {
+                return Err("Timed out waiting for Java server console tick barrier".to_string());
+            }
+            match tokio::time::timeout(rem, self.stdout_rx.recv()).await {
+                Ok(Some(line)) => {
+                    if line.contains("Seed: [") {
+                        return Ok(());
+                    }
+                }
+                Ok(None) => {
+                    return Err(
+                        "Java server stdout closed while waiting for console barrier".to_string(),
+                    );
+                }
+                Err(_) => {
+                    return Err(
+                        "Timed out waiting for Java server console tick barrier".to_string()
+                    );
+                }
+            }
+        }
+    }
+
+    async fn step_and_wait_tick(&mut self) -> Result<(), String> {
+        self.send_console_command("tick step 1").await?;
+        self.wait_for_console_barrier().await?;
+        self.wait_for_console_barrier().await?;
+        self.wait_for_console_barrier().await?;
+        Ok(())
+    }
+}
+
+fn resolve_java_binary() -> PathBuf {
+    let candidates = [
+        "/usr/lib/jvm/java-26-openjdk/bin/java",
+        "/usr/lib/jvm/java-21-openjdk/bin/java",
+    ];
+    for c in candidates {
+        let p = Path::new(c);
+        if p.exists() {
+            return p.to_path_buf();
+        }
+    }
+    if let Ok(java_home) = std::env::var("JAVA_HOME") {
+        let p = Path::new(&java_home).join("bin/java");
+        if p.exists() {
+            return p;
+        }
+    }
+    PathBuf::from("java")
 }
 
 fn resolve_option_path(cli_flag: &str, env_var: &str) -> Option<PathBuf> {
