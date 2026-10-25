@@ -1062,23 +1062,8 @@ impl JavaRecorderServer {
 }
 
 fn resolve_java_binary() -> PathBuf {
-    let candidates = [
-        "/usr/lib/jvm/java-26-openjdk/bin/java",
-        "/usr/lib/jvm/java-21-openjdk/bin/java",
-    ];
-    for c in candidates {
-        let p = Path::new(c);
-        if p.exists() {
-            return p.to_path_buf();
-        }
-    }
-    if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        let p = Path::new(&java_home).join("bin/java");
-        if p.exists() {
-            return p;
-        }
-    }
-    PathBuf::from("java")
+    resolve_option_path("--parity-java-bin", "PUMPKIN_PARITY_JAVA_BIN")
+        .unwrap_or_else(|| PathBuf::from("java"))
 }
 
 fn resolve_option_path(cli_flag: &str, env_var: &str) -> Option<PathBuf> {
