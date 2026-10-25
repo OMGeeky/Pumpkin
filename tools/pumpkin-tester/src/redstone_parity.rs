@@ -629,7 +629,7 @@ async fn record_contraptions_on_java_inner(
 
         for cmd in [
             format!("fill {bx1} {by1} {bz1} {bx2} {by2} {bz2} minecraft:air"),
-            format!("place template parity:{name}_start {ox} {oy} {oz}"),
+            format!("place template parity:{name}_start {ox} {oy} {oz} none none 1.0 0 strict"),
             format!(
                 "setblock {} {} {} minecraft:structure_block[mode=save]",
                 sb_pos.0.x, sb_pos.0.y, sb_pos.0.z
