@@ -13,6 +13,7 @@ pumpkin-data.workspace = true
 pumpkin-gametest.workspace = true
 pumpkin-protocol.workspace = true
 pumpkin-util.workspace = true
+pumpkin-world.workspace = true
 rayon.workspace = true
 rustls.workspace = true
 serde.workspace = true

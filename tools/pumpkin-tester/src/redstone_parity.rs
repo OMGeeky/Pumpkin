@@ -44,6 +44,7 @@ use pumpkin_util::{
     Hand,
     math::{position::BlockPos, vector2::Vector2, vector3::Vector3},
 };
+use pumpkin_world::chunk::ChunkData;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 use tokio::{
@@ -93,7 +94,86 @@ pub struct ContraptionCheck {
     pub nbt: String,
 }
 
-/// Runs all `.nbt` contraption parity tests discovered under `assets/tests/redstone_parity/`.
+struct ContraptionSpec {
+    name: &'static str,
+    dir: &'static str,
+    manifest_json: &'static str,
+    start_nbt: &'static [u8],
+}
+
+struct ContraptionEvaluation {
+    total_checks: usize,
+    passed_checks: usize,
+    failures: Vec<String>,
+}
+
+macro_rules! redstone_parity_tests {
+    ($($name:ident),* $(,)?) => {
+        const CONTRAPTIONS: &[ContraptionSpec] = &[
+            $(
+                ContraptionSpec {
+                    name: stringify!($name),
+                    dir: concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../../assets/tests/redstone_parity/",
+                        stringify!($name)
+                    ),
+                    manifest_json: include_str!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../../assets/tests/redstone_parity/",
+                        stringify!($name),
+                        "/test.json"
+                    )),
+                    start_nbt: include_bytes!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../../assets/tests/redstone_parity/",
+                        stringify!($name),
+                        "/start.nbt"
+                    )),
+                },
+            )*
+        ];
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            $(
+                #[test]
+                fn $name() {
+                    run_contraption_rust_test(stringify!($name));
+                }
+            )*
+        }
+    };
+}
+
+redstone_parity_tests!(
+    comparator_subtract_and_container_read,
+    copper_bulb_t_flip_flop_counter,
+    double_piston_extender_horizontal,
+    flying_machine_two_way_slime_honey,
+    hopper_redstone_lock,
+    jeb_door_2x2_flush,
+    monostable_rising_edge_block_spitter,
+    observer_copper_bulb,
+    piston_door_3x3,
+    piston_door_4x4_vault,
+    piston_redstone_block,
+    power_source_lever_3d,
+    power_source_redstone_block_vs_dust,
+    power_source_torch_3d,
+    quasi_connectivity_bud_switch,
+    repeater_chain,
+    repeater_locking_latch,
+    rs_nor_and_xor_gates,
+    subtick_tile_tick_priority_race,
+    torch_inverter_pulse,
+    wire_staircase_and_transparent_diode,
+    zero_tick_pulse_and_block_event_order,
+);
+
+/// Runs all compile-time registered `.nbt` contraption parity tests.
 ///
 /// Pass `--record-parity` (optionally with `--parity-java-jar <jar>`) to record or update
 /// the checkpoint `.nbt` files for each contraption.
@@ -101,152 +181,54 @@ pub struct ContraptionCheck {
 /// # Errors
 ///
 /// Returns an error if a contraption file is invalid or if a checkpoint diverges in strict mode.
-#[expect(
-    clippy::too_many_lines,
-    reason = "Runs contraption discovery, optional Java recording, and checkpoint evaluation"
-)]
 pub async fn run_redstone_parity_suite(
     server: &Arc<Server>,
     _runner: &mut GameTestRunner,
     summary_lines: &mut Vec<String>,
 ) -> Result<(), String> {
-    let suite_dir = resolve_parity_dir()
-        .ok_or_else(|| "Could not locate assets/tests/redstone_parity directory".to_string())?;
-    let record_mode = cli_has_flag("--record-parity")
-        || std::env::var("PUMPKIN_PARITY_RECORD")
-            .is_ok_and(|val| matches!(val.as_str(), "1" | "true" | "TRUE"));
-    let strict_mode = cli_has_flag("--strict-parity")
-        || std::env::var("PUMPKIN_PARITY_STRICT")
-            .is_ok_and(|val| matches!(val.as_str(), "1" | "true" | "TRUE"));
+    let record_mode = record_parity_enabled();
+    let strict_mode = strict_parity_enabled();
+    let java_jar = resolve_option_path("--parity-java-jar", "PUMPKIN_PARITY_JAVA_JAR");
 
-    let contraption_dirs = discover_contraption_dirs(&suite_dir)?;
-    if contraption_dirs.is_empty() {
-        return Err(format!(
-            "No contraption folders containing test.json found in {}",
-            suite_dir.display()
-        ));
-    }
-
-    if record_mode
-        && let Some(java_jar) = resolve_option_path("--parity-java-jar", "PUMPKIN_PARITY_JAVA_JAR")
-    {
-        record_contraptions_on_java(&java_jar, &contraption_dirs).await?;
+    if record_mode && let Some(jar) = &java_jar {
+        record_contraptions_on_java(jar, CONTRAPTIONS).await?;
         summary_lines.push(format!(
             "[PASS] redstone_parity_java_record (recorded {} contraptions from Vanilla Java)",
-            contraption_dirs.len()
+            CONTRAPTIONS.len()
         ));
     }
 
     let world = server.get_world_from_dimension(&Dimension::OVERWORLD);
-    let base_cx = PARITY_ORIGIN.0.x >> 4;
-    let base_cz = PARITY_ORIGIN.0.z >> 4;
-    force_load_parity_chunks(&world, base_cx - 1, base_cx + 2, base_cz - 1, base_cz + 2);
-    for cx in (base_cx - 1)..=(base_cx + 2) {
-        for cz in (base_cz - 1)..=(base_cz + 2) {
-            world
-                .level
-                .get_or_fetch_chunk(Vector2::new(cx, cz), |_| ())
-                .await;
-        }
-    }
-    world.update_active_chunks();
+    ensure_parity_chunks_loaded(&world);
 
+    let record_pumpkin_checkpoints = record_mode && java_jar.is_none();
     let mut passed_contraptions = 0usize;
     let mut total_checks = 0usize;
     let mut passed_checks = 0usize;
     let mut failures = Vec::new();
 
-    for dir in &contraption_dirs {
-        let name = dir
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
-        let manifest_path = dir.join("test.json");
-        let raw_manifest = fs::read_to_string(&manifest_path)
-            .map_err(|e| format!("Failed to read {}: {e}", manifest_path.display()))?;
-        let manifest: ContraptionTestManifest = serde_json::from_str(&raw_manifest)
-            .map_err(|e| format!("Failed to parse {}: {e}", manifest_path.display()))?;
-
-        let start_path = dir.join(&manifest.start);
-        let start_bytes = fs::read(&start_path)
-            .map_err(|e| format!("Failed to read {}: {e}", start_path.display()))?;
-        let start_template = GameTestStructureTemplate::from_gzip_bytes(&start_bytes)
-            .map_err(|e| format!("Failed to parse {}: {e}", start_path.display()))?;
-
-        place_contraption_in_world(&world, PARITY_ORIGIN, &start_template);
-
-        let max_tick = manifest
-            .actions
-            .iter()
-            .map(|a| a.tick)
-            .chain(manifest.checks.iter().map(|c| c.tick))
-            .max()
-            .unwrap_or(0);
-
-        let mut contraption_ok = true;
-        for tick in 0..=max_tick {
-            if tick > 0 {
-                server.tick();
-            }
-
-            for action in manifest.actions.iter().filter(|a| a.tick == tick) {
-                execute_contraption_action(&world, PARITY_ORIGIN, &action.kind)?;
-            }
-
-            for check in manifest.checks.iter().filter(|c| c.tick == tick) {
-                total_checks += 1;
-                let actual =
-                    capture_structure_from_world(&world, PARITY_ORIGIN, start_template.size())?;
-                let check_path = dir.join(&check.nbt);
-
-                if record_mode
-                    && resolve_option_path("--parity-java-jar", "PUMPKIN_PARITY_JAVA_JAR").is_none()
-                {
-                    let bytes = actual.to_gzip_bytes().map_err(|e| {
-                        format!("Failed to serialize {}: {e}", check_path.display())
-                    })?;
-                    fs::write(&check_path, bytes)
-                        .map_err(|e| format!("Failed to write {}: {e}", check_path.display()))?;
-                }
-
-                let expected_bytes = fs::read(&check_path)
-                    .map_err(|e| format!("Failed to read {}: {e}", check_path.display()))?;
-                let expected = GameTestStructureTemplate::from_gzip_bytes(&expected_bytes)
-                    .map_err(|e| format!("Failed to parse {}: {e}", check_path.display()))?;
-
-                let mismatches = actual.compare(&expected);
-                if mismatches.is_empty() {
-                    passed_checks += 1;
-                } else {
-                    contraption_ok = false;
-                    let preview: Vec<String> =
-                        mismatches.iter().take(5).map(ToString::to_string).collect();
-                    let detail = format!(
-                        "[DIVERGED] {name} at tick {tick} ({}): {} mismatch(es): {}",
-                        check.nbt,
-                        mismatches.len(),
-                        preview.join("; ")
-                    );
-                    summary_lines.push(format!("  {detail}"));
-                    failures.push(detail);
-                }
-            }
-        }
-
-        if contraption_ok {
+    for spec in CONTRAPTIONS {
+        let eval = evaluate_contraption(server, &world, spec, record_pumpkin_checkpoints)?;
+        total_checks += eval.total_checks;
+        passed_checks += eval.passed_checks;
+        if eval.failures.is_empty() {
             passed_contraptions += 1;
             summary_lines.push(format!(
-                "  [COMPLIANT] {name} ({}/{} NBT checkpoints matched)",
-                manifest.checks.len(),
-                manifest.checks.len()
+                "  [COMPLIANT] {} ({}/{} NBT checkpoints matched)",
+                spec.name, eval.passed_checks, eval.total_checks
             ));
+        } else {
+            for detail in eval.failures {
+                summary_lines.push(format!("  {detail}"));
+                failures.push(detail);
+            }
         }
     }
 
     summary_lines.push(format!(
         "[PASS] redstone_parity ({}/{} contraptions compliant, {}/{} NBT checkpoints matched)",
         passed_contraptions,
-        contraption_dirs.len(),
+        CONTRAPTIONS.len(),
         passed_checks,
         total_checks
     ));
@@ -261,19 +243,89 @@ pub async fn run_redstone_parity_suite(
     Ok(())
 }
 
-fn discover_contraption_dirs(suite_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let entries = fs::read_dir(suite_dir)
-        .map_err(|e| format!("Failed to read {}: {e}", suite_dir.display()))?;
-    let mut dirs = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.is_dir() && path.join("test.json").is_file() {
-            dirs.push(path);
+fn evaluate_contraption(
+    server: &Arc<Server>,
+    world: &Arc<World>,
+    spec: &ContraptionSpec,
+    record_pumpkin_checkpoints: bool,
+) -> Result<ContraptionEvaluation, String> {
+    let manifest: ContraptionTestManifest = serde_json::from_str(spec.manifest_json)
+        .map_err(|e| format!("Failed to parse {}/test.json: {e}", spec.name))?;
+    let start_template = GameTestStructureTemplate::from_gzip_bytes(spec.start_nbt)
+        .map_err(|e| format!("Failed to parse {}/{}: {e}", spec.name, manifest.start))?;
+
+    place_contraption_in_world(world, PARITY_ORIGIN, &start_template);
+
+    let max_tick = manifest
+        .actions
+        .iter()
+        .map(|a| a.tick)
+        .chain(manifest.checks.iter().map(|c| c.tick))
+        .max()
+        .unwrap_or(0);
+
+    let dir = Path::new(spec.dir);
+    let mut total_checks = 0usize;
+    let mut passed_checks = 0usize;
+    let mut failures = Vec::new();
+
+    for tick in 0..=max_tick {
+        if tick > 0 {
+            server.tick();
+        }
+
+        for action in manifest.actions.iter().filter(|a| a.tick == tick) {
+            if let Err(err) = execute_contraption_action(world, PARITY_ORIGIN, &action.kind) {
+                if tick == 0 {
+                    return Err(err);
+                }
+                failures.push(format!(
+                    "[DIVERGED] {} at tick {tick} (action): {err}",
+                    spec.name
+                ));
+            }
+        }
+
+        for check in manifest.checks.iter().filter(|c| c.tick == tick) {
+            total_checks += 1;
+            let actual = capture_structure_from_world(world, PARITY_ORIGIN, start_template.size())?;
+            let check_path = dir.join(&check.nbt);
+
+            if record_pumpkin_checkpoints {
+                let bytes = actual
+                    .to_gzip_bytes()
+                    .map_err(|e| format!("Failed to serialize {}: {e}", check_path.display()))?;
+                fs::write(&check_path, bytes)
+                    .map_err(|e| format!("Failed to write {}: {e}", check_path.display()))?;
+            }
+
+            let expected_bytes = fs::read(&check_path)
+                .map_err(|e| format!("Failed to read {}: {e}", check_path.display()))?;
+            let expected = GameTestStructureTemplate::from_gzip_bytes(&expected_bytes)
+                .map_err(|e| format!("Failed to parse {}: {e}", check_path.display()))?;
+
+            let mismatches = actual.compare(&expected);
+            if mismatches.is_empty() {
+                passed_checks += 1;
+            } else {
+                let preview: Vec<String> =
+                    mismatches.iter().take(5).map(ToString::to_string).collect();
+                failures.push(format!(
+                    "[DIVERGED] {} at tick {tick} ({}): {} mismatch(es): {}",
+                    spec.name,
+                    check.nbt,
+                    mismatches.len(),
+                    preview.join("; ")
+                ));
+            }
         }
     }
-    dirs.sort();
-    Ok(dirs)
+
+    Ok(ContraptionEvaluation {
+        total_checks,
+        passed_checks,
+        failures,
+    })
 }
 
 fn place_contraption_in_world(
@@ -289,21 +341,17 @@ fn place_contraption_in_world(
         origin.0.z + size[2] + 2,
     );
 
-    let clear_flags = BlockFlags::FORCE_STATE
-        | BlockFlags::SKIP_DROPS
-        | BlockFlags::SKIP_REDSTONE_WIRE_STATE_REPLACEMENT
-        | BlockFlags::SKIP_BLOCK_ADDED_CALLBACK
-        | BlockFlags::SKIP_BLOCK_ENTITY_REPLACED_CALLBACK;
-
-    let air_id = Block::AIR.default_state.id;
-
-    for x in (origin.0.x - 1)..=(origin.0.x + size[0]) {
-        for y in (origin.0.y - 1)..=(origin.0.y + size[1]) {
-            for z in (origin.0.z - 1)..=(origin.0.z + size[2]) {
-                let pos = BlockPos::new(x, y, z);
-                world.remove_block_entity(&pos);
-                let _ = world.set_block_state(&pos, air_id, clear_flags);
-            }
+    let base_cx = origin.0.x >> 4;
+    let base_cz = origin.0.z >> 4;
+    for cx in (base_cx - 1)..=(base_cx + 2) {
+        for cz in (base_cz - 1)..=(base_cz + 2) {
+            let chunk_pos = Vector2::new(cx, cz);
+            world
+                .level
+                .loaded_chunks
+                .insert(chunk_pos, ChunkData::empty_sync(cx, cz));
+            world.block_entities.remove(&chunk_pos);
+            world.level.chunks_with_scheduled_ticks.remove(&chunk_pos);
         }
     }
 
@@ -338,23 +386,8 @@ fn place_contraption_in_world(
         }
     }
 
-    let min_cx = min_pos.0.x >> 4;
-    let max_cx = max_pos.0.x >> 4;
-    let min_cz = min_pos.0.z >> 4;
-    let max_cz = max_pos.0.z >> 4;
-    for cx in min_cx..=max_cx {
-        for cz in min_cz..=max_cz {
-            let chunk_pos = Vector2::new(cx, cz);
-            if let Some(chunk) = world.level.loaded_chunks.get(&chunk_pos) {
-                chunk.block_ticks.clear_area(&min_pos, &max_pos);
-                chunk.fluid_ticks.clear_area(&min_pos, &max_pos);
-                if !chunk.block_ticks.has_ticks() && !chunk.fluid_ticks.has_ticks() {
-                    world.level.chunks_with_scheduled_ticks.remove(&chunk_pos);
-                }
-            }
-        }
-    }
     world.clear_synced_block_events_in_box(&min_pos, &max_pos);
+    world.update_active_chunks();
 }
 
 fn capture_structure_from_world(
@@ -547,11 +580,11 @@ fn use_block_at(world: &Arc<World>, pos: &BlockPos) -> Result<(), String> {
 
 async fn record_contraptions_on_java(
     java_jar: &Path,
-    contraption_dirs: &[PathBuf],
+    contraptions: &[ContraptionSpec],
 ) -> Result<(), String> {
     let mut java_proc = JavaRecorderServer::spawn(java_jar).await?;
     let temp_root = java_proc.temp_dir_path.clone();
-    let res = record_contraptions_on_java_inner(&mut java_proc, &temp_root, contraption_dirs).await;
+    let res = record_contraptions_on_java_inner(&mut java_proc, &temp_root, contraptions).await;
     if let Err(err) = res {
         let log_path = temp_root.join("logs").join("latest.log");
         let log_tail = fs::read_to_string(&log_path).unwrap_or_default();
@@ -573,7 +606,7 @@ async fn record_contraptions_on_java(
 async fn record_contraptions_on_java_inner(
     java_proc: &mut JavaRecorderServer,
     temp_root: &Path,
-    contraption_dirs: &[PathBuf],
+    contraptions: &[ContraptionSpec],
 ) -> Result<(), String> {
     let parity_struct_dir = temp_root
         .join("world")
@@ -608,27 +641,19 @@ async fn record_contraptions_on_java_inner(
     java_proc.wait_for_console_barrier().await?;
     drain_bot_until_pong(&mut bot, &mut ping_nonce, Duration::from_secs(5)).await?;
 
-    for dir in contraption_dirs {
-        let name = dir
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
-        let manifest_path = dir.join("test.json");
-        let raw_manifest = fs::read_to_string(&manifest_path)
-            .map_err(|e| format!("Failed to read {}: {e}", manifest_path.display()))?;
-        let manifest: ContraptionTestManifest = serde_json::from_str(&raw_manifest)
-            .map_err(|e| format!("Failed to parse {}: {e}", manifest_path.display()))?;
+    for spec in contraptions {
+        let name = spec.name;
+        let dir = Path::new(spec.dir);
+        let manifest: ContraptionTestManifest = serde_json::from_str(spec.manifest_json)
+            .map_err(|e| format!("Failed to parse {name}/test.json: {e}"))?;
 
-        let start_src = dir.join(&manifest.start);
-        let start_bytes = fs::read(&start_src)
-            .map_err(|e| format!("Failed to read {}: {e}", start_src.display()))?;
-        let start_template = GameTestStructureTemplate::from_gzip_bytes(&start_bytes)
-            .map_err(|e| format!("Failed to parse {}: {e}", start_src.display()))?;
+        let start_template = GameTestStructureTemplate::from_gzip_bytes(spec.start_nbt)
+            .map_err(|e| format!("Failed to parse {name}/{}: {e}", manifest.start))?;
         let size = start_template.size();
 
         let start_dst = parity_struct_dir.join(format!("{name}_start.nbt"));
-        fs::copy(&start_src, &start_dst)
-            .map_err(|e| format!("Failed to copy {}: {e}", start_src.display()))?;
+        fs::write(&start_dst, spec.start_nbt)
+            .map_err(|e| format!("Failed to write {}: {e}", start_dst.display()))?;
 
         let bx1 = ox - 1;
         let by1 = oy - 1;
@@ -1085,22 +1110,26 @@ fn cli_has_flag(cli_flag: &str) -> bool {
     std::env::args().any(|arg| arg == cli_flag)
 }
 
-fn resolve_parity_dir() -> Option<PathBuf> {
-    if let Some(path) = resolve_option_path("--parity-dir", "PUMPKIN_PARITY_DIR")
-        && path.exists()
-    {
-        return Some(path);
-    }
-
-    let candidates = [
-        PathBuf::from("assets/tests/redstone_parity"),
-        PathBuf::from("../../assets/tests/redstone_parity"),
-        PathBuf::from("code/Pumpkin/assets/tests/redstone_parity"),
-    ];
-    candidates.into_iter().find(|candidate| candidate.exists())
+fn record_parity_enabled() -> bool {
+    cli_has_flag("--record-parity")
+        || std::env::var("PUMPKIN_PARITY_RECORD")
+            .is_ok_and(|val| matches!(val.as_str(), "1" | "true" | "TRUE"))
 }
 
-fn force_load_parity_chunks(world: &World, min_cx: i32, max_cx: i32, min_cz: i32, max_cz: i32) {
+fn strict_parity_enabled() -> bool {
+    cli_has_flag("--strict-parity")
+        || std::env::var("PUMPKIN_PARITY_STRICT")
+            .is_ok_and(|val| matches!(val.as_str(), "1" | "true" | "TRUE"))
+}
+
+fn ensure_parity_chunks_loaded(world: &World) {
+    let base_cx = PARITY_ORIGIN.0.x >> 4;
+    let base_cz = PARITY_ORIGIN.0.z >> 4;
+    let min_cx = base_cx - 1;
+    let max_cx = base_cx + 2;
+    let min_cz = base_cz - 1;
+    let max_cz = base_cz + 2;
+
     let mut forced = world
         .forced_chunks
         .lock()
@@ -1113,9 +1142,104 @@ fn force_load_parity_chunks(world: &World, min_cx: i32, max_cx: i32, min_cz: i32
     for cx in min_cx..=max_cx {
         for cz in min_cz..=max_cz {
             let chunk = Vector2::new(cx, cz);
+            world
+                .level
+                .loaded_chunks
+                .entry(chunk)
+                .or_insert_with(|| ChunkData::empty_sync(cx, cz));
             forced.insert(chunk);
             chunk_loading.add_force_ticket(chunk);
         }
     }
     chunk_loading.send_change();
+    drop(chunk_loading);
+    drop(forced);
+    world.update_active_chunks();
+}
+
+#[cfg(test)]
+struct ParityTestHarness {
+    runtime: tokio::runtime::Runtime,
+    _temp_dir: TempDir,
+    server: Arc<Server>,
+    world: Arc<World>,
+}
+
+#[cfg(test)]
+impl ParityTestHarness {
+    #[expect(
+        clippy::expect_used,
+        reason = "Test harness initialization panics on unexpected setup failure"
+    )]
+    fn new() -> Self {
+        use pumpkin_util::world_seed::Seed;
+        use pumpkin_world::world_info::{
+            LevelData, WorldGenSettings, WorldInfoWriter, anvil::AnvilLevelInfo,
+        };
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime for parity test harness");
+        let temp_dir = tempfile::tempdir().expect("tempdir for parity test harness");
+
+        let mut level_data = LevelData::default(Seed(0));
+        if let Some(flat_settings) = WorldGenSettings::from_preset_name("minecraft:flat", Seed(0)) {
+            level_data.world_gen_settings = flat_settings;
+        }
+        level_data.game_rules.spawn_mobs = false;
+        level_data.game_rules.random_tick_speed = 0;
+        AnvilLevelInfo
+            .write_world_info(&level_data, temp_dir.path())
+            .expect("write flat level.dat for parity test harness");
+
+        let server = runtime
+            .block_on(crate::harness::create_test_server(&temp_dir))
+            .expect("initialize parity test server");
+        let world = server.get_world_from_dimension(&Dimension::OVERWORLD);
+        ensure_parity_chunks_loaded(&world);
+
+        Self {
+            runtime,
+            _temp_dir: temp_dir,
+            server,
+            world,
+        }
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "Rust test assertion helper for redstone parity contraptions"
+)]
+fn run_contraption_rust_test(name: &str) {
+    static HARNESS: std::sync::OnceLock<std::sync::Mutex<ParityTestHarness>> =
+        std::sync::OnceLock::new();
+
+    let spec = CONTRAPTIONS
+        .iter()
+        .find(|c| c.name == name)
+        .expect("registered contraption spec");
+    let harness_mutex = HARNESS.get_or_init(|| std::sync::Mutex::new(ParityTestHarness::new()));
+    let harness = harness_mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _enter = harness.runtime.enter();
+
+    let eval = evaluate_contraption(&harness.server, &harness.world, spec, false)
+        .expect("contraption evaluation should succeed");
+    assert!(
+        eval.total_checks > 0,
+        "contraption {name} has no checkpoints"
+    );
+
+    assert!(
+        !strict_parity_enabled() || eval.failures.is_empty(),
+        "contraption {name} failed {}/{} checkpoint(s):\n{}",
+        eval.failures.len(),
+        eval.total_checks,
+        eval.failures.join("\n")
+    );
 }

@@ -3366,6 +3366,7 @@ dependencies = [
  "pumpkin-gametest",
  "pumpkin-protocol",
  "pumpkin-util",
+ "pumpkin-world",
  "rayon",
  "rustls",
  "serde",
