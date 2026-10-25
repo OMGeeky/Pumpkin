@@ -52,10 +52,14 @@ impl crate::ClientPacket for SPlaceRecipe {
     fn write_packet_data(
         &self,
         mut write: impl std::io::Write,
-        _version: &JavaMinecraftVersion,
+        version: &JavaMinecraftVersion,
     ) -> Result<(), crate::ser::WritingError> {
         use crate::ser::NetworkWriteExt;
-        write.write_i8(self.container_id)?;
+        if *version >= JavaMinecraftVersion::V_1_21_2 {
+            write.write_container_id(&VarInt(i32::from(self.container_id)), version)?;
+        } else {
+            write.write_i8(self.container_id)?;
+        }
         write.write_var_int(&self.recipe_display_id)?;
         write.write_bool(self.use_max_items)?;
         Ok(())

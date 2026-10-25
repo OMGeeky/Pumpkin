@@ -59,9 +59,16 @@ impl<'a> ServerPacket<'a> for CUpdateEntityRot {
         } else {
             bytebuf.get_var_int()?
         };
+        let on_ground_prefix = if *version >= JavaMinecraftVersion::V_26_3 {
+            Some(bytebuf.get_bool()?)
+        } else {
+            None
+        };
         let yaw = bytebuf.get_u8()?;
         let pitch = bytebuf.get_u8()?;
-        let on_ground = if *version >= JavaMinecraftVersion::V_1_8 {
+        let on_ground = if let Some(on_ground) = on_ground_prefix {
+            on_ground
+        } else if *version >= JavaMinecraftVersion::V_1_8 {
             bytebuf.get_bool()?
         } else {
             false
@@ -72,5 +79,26 @@ impl<'a> ServerPacket<'a> for CUpdateEntityRot {
             pitch,
             on_ground,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_v26_3_and_v1_21_11() {
+        let pkt = CUpdateEntityRot::new(VarInt(42), 64, 192, true);
+        for version in [
+            JavaMinecraftVersion::V_1_21_11,
+            JavaMinecraftVersion::V_26_3,
+        ] {
+            let mut buf = Vec::new();
+            pkt.write_packet_data(&mut buf, &version).unwrap();
+            let mut slice = buf.as_slice();
+            let decoded = CUpdateEntityRot::read(&mut slice, &version).unwrap();
+            assert_eq!(decoded, pkt);
+            assert!(slice.is_empty());
+        }
     }
 }

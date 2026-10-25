@@ -712,9 +712,9 @@ impl ItemComponentHash {
 
 #[derive(Debug, Clone)]
 pub struct ItemStackHash {
-    item_id: VarInt,
-    count: VarInt,
-    components: ItemComponentHash,
+    pub item_id: VarInt,
+    pub count: VarInt,
+    pub components: ItemComponentHash,
 }
 
 #[derive(Debug, Clone)]

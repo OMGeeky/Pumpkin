@@ -59,22 +59,27 @@ impl LpVector3d {
     }
 
     pub fn read<R: std::io::Read>(reader: &mut R) -> Result<Self, ReadingError> {
-        let mut low_16 = [0u8; 2];
+        let mut first = [0u8; 1];
         reader
-            .read_exact(&mut low_16)
+            .read_exact(&mut first)
             .map_err(|e| ReadingError::Message(e.to_string()))?;
 
-        if low_16[0] == 0 && low_16[1] == 0 {
+        if first[0] == 0 {
             return Ok(Self(Vector3::new(0.0, 0.0, 0.0)));
         }
+
+        let mut second = [0u8; 1];
+        reader
+            .read_exact(&mut second)
+            .map_err(|e| ReadingError::Message(e.to_string()))?;
 
         let mut mid_32 = [0u8; 4];
         reader
             .read_exact(&mut mid_32)
             .map_err(|e| ReadingError::Message(e.to_string()))?;
 
-        let low = u16::from_le_bytes(low_16) as i64;
-        let mid = i32::from_be_bytes(mid_32) as i64;
+        let low = i64::from(u16::from_le_bytes([first[0], second[0]]));
+        let mid = i64::from(u32::from_be_bytes(mid_32));
         let packed_data = low | (mid << 16);
 
         let header = packed_data & 0x07;
@@ -82,7 +87,7 @@ impl LpVector3d {
 
         let scale_factor = if is_extended {
             let scale_tail = VarInt::decode(reader)?;
-            ((scale_tail.0 as i64) << 2) | (header & 3)
+            ((i64::from(scale_tail.0) & 0xFFFF_FFFF) << 2) | (header & 3)
         } else {
             header & 3
         };
@@ -165,6 +170,34 @@ mod tests {
         let mut buf = Vec::new();
         velocity.write_legacy(&mut buf)?;
         assert_eq!(buf, vec![0x0F, 0xA0, 0xF0, 0x60, 0x00, 0x00]);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_velocity_consumes_single_byte() -> Result<(), Box<dyn std::error::Error>> {
+        let velocity = LpVector3d(Vector3::new(0.0, 0.0, 0.0));
+        let mut buf = Vec::new();
+        velocity.write(&mut buf)?;
+        assert_eq!(buf, vec![0x00]);
+        buf.extend_from_slice(&[0x12, 0x34, 0x56]);
+        let mut slice: &[u8] = &buf;
+        let decoded = LpVector3d::read(&mut slice)?;
+        assert_eq!(decoded, velocity);
+        assert_eq!(slice, &[0x12, 0x34, 0x56]);
+        Ok(())
+    }
+
+    #[test]
+    fn nonzero_velocity_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let velocity = LpVector3d(Vector3::new(0.25, -0.5, 1.5));
+        let mut buf = Vec::new();
+        velocity.write(&mut buf)?;
+        let mut slice: &[u8] = &buf;
+        let decoded = LpVector3d::read(&mut slice)?;
+        assert!((decoded.0.x - velocity.0.x).abs() < 1e-3);
+        assert!((decoded.0.y - velocity.0.y).abs() < 1e-3);
+        assert!((decoded.0.z - velocity.0.z).abs() < 1e-3);
+        assert!(slice.is_empty());
         Ok(())
     }
 }
