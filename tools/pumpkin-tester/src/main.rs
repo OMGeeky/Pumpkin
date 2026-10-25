@@ -2,6 +2,7 @@ mod bot;
 mod bot_tests;
 mod gametests;
 mod harness;
+mod lockstep;
 mod redstone_parity;
 
 use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Instant};
@@ -15,12 +16,27 @@ async fn run_all_suites(server: &Arc<Server>, addr: SocketAddr) -> Result<Vec<St
     let mut summary_lines = Vec::new();
     let mut runner = GameTestRunner::new();
     let only_parity = std::env::args().any(|arg| arg == "--only-parity");
+    let lockstep_cfg = lockstep::LockstepCliConfig::from_env_and_args();
 
-    if !only_parity {
+    if !only_parity && !lockstep_cfg.only_lockstep {
         bot_tests::run_bot_tests(server, addr, &mut runner, &mut summary_lines).await?;
         gametests::run_gametests(server, &mut runner, &mut summary_lines).await?;
     }
-    redstone_parity::run_redstone_parity_suite(server, &mut runner, &mut summary_lines).await?;
+    if !lockstep_cfg.only_lockstep {
+        redstone_parity::run_redstone_parity_suite(server, &mut runner, &mut summary_lines).await?;
+    }
+    if !only_parity {
+        let lockstep_report = lockstep::run_all_lockstep_tests(&lockstep_cfg).await?;
+        summary_lines.push(format!(
+            "Dual-server lockstep scenarios: {}/{} Java-compliant ({:.1}%), {}/{} peer-deterministic, {} Java-vs-Pumpkin diverged",
+            lockstep_report.java_compliant_scenarios,
+            lockstep_report.total_scenarios,
+            lockstep_report.java_compliance_percentage(),
+            lockstep_report.peer_deterministic_scenarios,
+            lockstep_report.total_scenarios,
+            lockstep_report.java_diverged_scenarios,
+        ));
+    }
 
     Ok(summary_lines)
 }

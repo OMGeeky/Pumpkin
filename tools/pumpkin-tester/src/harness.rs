@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use pumpkin_config::{AdvancedConfiguration, BasicConfiguration, TelemetryConfig};
+use pumpkin_config::{
+    AdvancedConfiguration, BasicConfiguration, TelemetryConfig,
+    chunk::{AnvilChunkConfig, ChunkConfig},
+};
 use pumpkin_core::{
     data::VanillaData,
     net::{
@@ -14,6 +17,17 @@ use tokio::net::TcpListener;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 pub async fn create_test_server(temp_dir: &tempfile::TempDir) -> Result<Arc<Server>, String> {
+    create_test_server_with_world(temp_dir, None).await
+}
+
+pub async fn create_test_server_with_world(
+    temp_dir: &tempfile::TempDir,
+    world_save: Option<&Path>,
+) -> Result<Arc<Server>, String> {
+    if let Some(src) = world_save {
+        copy_dir_recursive(src, temp_dir.path())?;
+    }
+
     let basic_config = BasicConfiguration {
         default_level_name: temp_dir.path().to_string_lossy().into_owned(),
         allow_nether: false,
@@ -24,6 +38,9 @@ pub async fn create_test_server(temp_dir: &tempfile::TempDir) -> Result<Arc<Serv
     };
 
     let mut advanced_config = AdvancedConfiguration::default();
+    if world_save.is_some() {
+        advanced_config.world.chunk = ChunkConfig::Anvil(AnvilChunkConfig::default());
+    }
     advanced_config.networking.java.online_mode = false;
     advanced_config.networking.java.encryption = false;
     advanced_config.networking.java.compression.enabled = false;
@@ -42,6 +59,39 @@ pub async fn create_test_server(temp_dir: &tempfile::TempDir) -> Result<Arc<Serv
     )
     .await
     .map_err(|err| format!("Failed to initialize test Server: {err}"))
+}
+
+pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    if !src.exists() {
+        return Err(format!(
+            "World save directory does not exist: {}",
+            src.display()
+        ));
+    }
+    std::fs::create_dir_all(dst)
+        .map_err(|e| format!("Failed to create directory {}: {e}", dst.display()))?;
+    let entries = std::fs::read_dir(src)
+        .map_err(|e| format!("Failed to read directory {}: {e}", src.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read dir entry: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to read file type: {e}"))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&src_path, &dst_path).map_err(|e| {
+                format!(
+                    "Failed to copy {} to {}: {e}",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 pub fn spawn_java_listener(
