@@ -3,30 +3,150 @@
   "actions": [
     {
       "tick": 0,
+      "type": "set_block",
+      "pos": [
+        3,
+        1,
+        1
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        5,
+        1,
+        1
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        1,
+        2,
+        2
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        2,
+        2,
+        2
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        0,
+        5,
+        1
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        6,
+        5,
+        1
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 3,
+      "type": "set_block",
+      "pos": [
+        3,
+        1,
+        1
+      ],
+      "block": "minecraft:observer[facing=east,powered=true]"
+    },
+    {
+      "tick": 3,
+      "type": "set_block",
+      "pos": [
+        5,
+        1,
+        1
+      ],
+      "block": "minecraft:observer[facing=west,powered=true]"
+    },
+    {
+      "tick": 3,
+      "type": "set_block",
+      "pos": [
+        1,
+        2,
+        2
+      ],
+      "block": "minecraft:observer[facing=down,powered=true]"
+    },
+    {
+      "tick": 3,
+      "type": "set_block",
+      "pos": [
+        2,
+        2,
+        2
+      ],
+      "block": "minecraft:observer[facing=down,powered=true]"
+    },
+    {
+      "tick": 3,
+      "type": "set_block",
+      "pos": [
+        0,
+        5,
+        1
+      ],
+      "block": "minecraft:observer[facing=down,powered=true]"
+    },
+    {
+      "tick": 3,
+      "type": "set_block",
+      "pos": [
+        6,
+        5,
+        1
+      ],
+      "block": "minecraft:observer[facing=down,powered=true]"
+    },
+    {
+      "tick": 5,
       "type": "pull_lever",
       "pos": [
         4,
-        2,
+        1,
         0
       ]
     },
     {
-      "tick": 14,
+      "tick": 35,
       "type": "pull_lever",
       "pos": [
         4,
-        2,
+        1,
         0
       ]
     }
   ],
   "checks": [
     {
-      "tick": 12,
+      "tick": 30,
       "nbt": "door_closed.nbt"
     },
     {
-      "tick": 32,
+      "tick": 65,
       "nbt": "door_opened.nbt"
     }
   ]
