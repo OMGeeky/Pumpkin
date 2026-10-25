@@ -1,0 +1,46 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        4
+      ]
+    },
+    {
+      "tick": 5,
+      "type": "use_block",
+      "pos": [
+        2,
+        1,
+        1
+      ]
+    },
+    {
+      "tick": 11,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        4
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 4,
+      "nbt": "compare_mode_15.nbt"
+    },
+    {
+      "tick": 10,
+      "nbt": "subtract_mode_3.nbt"
+    },
+    {
+      "tick": 16,
+      "nbt": "subtract_unpowered_side_15.nbt"
+    }
+  ]
+}

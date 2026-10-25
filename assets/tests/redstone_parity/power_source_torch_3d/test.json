@@ -1,0 +1,33 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "tick": 12,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        2
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 10,
+      "nbt": "torch_inverted_off.nbt"
+    },
+    {
+      "tick": 22,
+      "nbt": "torch_restored_on.nbt"
+    }
+  ]
+}

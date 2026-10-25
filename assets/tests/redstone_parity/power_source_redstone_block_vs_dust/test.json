@@ -1,0 +1,34 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        1,
+        2,
+        2
+      ],
+      "block": "minecraft:redstone_block"
+    },
+    {
+      "tick": 6,
+      "type": "break_block",
+      "pos": [
+        1,
+        2,
+        2
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 3,
+      "nbt": "active.nbt"
+    },
+    {
+      "tick": 14,
+      "nbt": "inactive.nbt"
+    }
+  ]
+}

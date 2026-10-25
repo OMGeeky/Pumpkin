@@ -1,0 +1,24 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        2
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 2,
+      "nbt": "race_tick_2.nbt"
+    },
+    {
+      "tick": 6,
+      "nbt": "race_settled_tick_6.nbt"
+    }
+  ]
+}

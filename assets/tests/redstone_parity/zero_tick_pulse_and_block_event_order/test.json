@@ -1,0 +1,37 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        1,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 8,
+      "type": "pull_lever",
+      "pos": [
+        1,
+        1,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 1,
+      "nbt": "block_event_race_tick_1.nbt"
+    },
+    {
+      "tick": 6,
+      "nbt": "extended_tick_6.nbt"
+    },
+    {
+      "tick": 14,
+      "nbt": "retracted_tick_14.nbt"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        1,
+        1,
+        1
+      ],
+      "block": "minecraft:observer[facing=west,powered=true]"
+    },
+    {
+      "tick": 0,
+      "type": "set_block",
+      "pos": [
+        4,
+        1,
+        2
+      ],
+      "block": "minecraft:observer[facing=east,powered=true]"
+    },
+    {
+      "tick": 1,
+      "type": "use_block",
+      "pos": [
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "tick": 42,
+      "type": "use_block",
+      "pos": [
+        8,
+        1,
+        2
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 14,
+      "nbt": "mid_flight_east.nbt"
+    },
+    {
+      "tick": 40,
+      "nbt": "docked_east.nbt"
+    },
+    {
+      "tick": 82,
+      "nbt": "returned_west.nbt"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "use_block",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 10,
+      "type": "use_block",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 20,
+      "type": "use_block",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 30,
+      "type": "use_block",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 8,
+      "nbt": "state_1.nbt"
+    },
+    {
+      "tick": 18,
+      "nbt": "state_2.nbt"
+    },
+    {
+      "tick": 28,
+      "nbt": "state_3.nbt"
+    },
+    {
+      "tick": 38,
+      "nbt": "state_0.nbt"
+    }
+  ]
+}

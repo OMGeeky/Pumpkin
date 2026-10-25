@@ -1,0 +1,59 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 10,
+      "type": "pull_lever",
+      "pos": [
+        4,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 20,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "tick": 30,
+      "type": "pull_lever",
+      "pos": [
+        4,
+        1,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 8,
+      "nbt": "xor_a_only_on.nbt"
+    },
+    {
+      "tick": 18,
+      "nbt": "xor_both_on.nbt"
+    },
+    {
+      "tick": 28,
+      "nbt": "xor_b_only_on.nbt"
+    },
+    {
+      "tick": 40,
+      "nbt": "xor_both_off.nbt"
+    }
+  ]
+}

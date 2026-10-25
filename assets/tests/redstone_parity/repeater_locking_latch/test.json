@@ -1,0 +1,64 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        2,
+        1,
+        3
+      ]
+    },
+    {
+      "tick": 3,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "tick": 7,
+      "type": "pull_lever",
+      "pos": [
+        2,
+        1,
+        3
+      ]
+    },
+    {
+      "tick": 14,
+      "type": "pull_lever",
+      "pos": [
+        2,
+        1,
+        3
+      ]
+    },
+    {
+      "tick": 18,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        1,
+        1
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 6,
+      "nbt": "locked_while_off.nbt"
+    },
+    {
+      "tick": 13,
+      "nbt": "unlocked_and_powered.nbt"
+    },
+    {
+      "tick": 24,
+      "nbt": "latched_while_on.nbt"
+    }
+  ]
+}

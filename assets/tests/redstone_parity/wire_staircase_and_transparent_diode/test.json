@@ -1,0 +1,57 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        2,
+        1
+      ]
+    },
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        0,
+        2,
+        3
+      ]
+    },
+    {
+      "tick": 4,
+      "type": "set_block",
+      "pos": [
+        1,
+        3,
+        3
+      ],
+      "block": "minecraft:stone"
+    },
+    {
+      "tick": 10,
+      "type": "set_block",
+      "pos": [
+        1,
+        3,
+        3
+      ],
+      "block": "minecraft:glass"
+    }
+  ],
+  "checks": [
+    {
+      "tick": 2,
+      "nbt": "uncut_stairs.nbt"
+    },
+    {
+      "tick": 9,
+      "nbt": "cut_by_stone.nbt"
+    },
+    {
+      "tick": 14,
+      "nbt": "restored_by_glass.nbt"
+    }
+  ]
+}

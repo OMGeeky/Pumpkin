@@ -1,0 +1,33 @@
+{
+  "start": "start.nbt",
+  "actions": [
+    {
+      "tick": 0,
+      "type": "pull_lever",
+      "pos": [
+        2,
+        4,
+        0
+      ]
+    },
+    {
+      "tick": 14,
+      "type": "pull_lever",
+      "pos": [
+        2,
+        4,
+        0
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "tick": 12,
+      "nbt": "closed_flush.nbt"
+    },
+    {
+      "tick": 26,
+      "nbt": "opened_retracted.nbt"
+    }
+  ]
+}
