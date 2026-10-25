@@ -256,7 +256,6 @@ pub(crate) fn try_pickup_fluid_at(
     }
 
     if state == Block::LAVA.default_state.id || state == Block::WATER.default_state.id {
-        world.break_block(&block_pos, None, BlockFlags::NOTIFY_ALL);
         world.set_block_state(
             &block_pos,
             Block::AIR.default_state.id,

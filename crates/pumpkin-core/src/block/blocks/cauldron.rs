@@ -49,22 +49,52 @@ fn fire_cauldron_change(
     !event.cancelled
 }
 
-fn give_item_or_drop(
+fn exchange_item_or_drop(
+    input_stack: &mut ItemStack,
     player: &crate::entity::player::Player,
     world: &std::sync::Arc<crate::world::World>,
+    gamemode: pumpkin_util::GameMode,
     item: &'static Item,
 ) {
-    give_stack_or_drop(player, world, ItemStack::new(1, item));
+    exchange_stack_or_drop(
+        input_stack,
+        player,
+        world,
+        gamemode,
+        ItemStack::new(1, item),
+    );
 }
 
-fn give_stack_or_drop(
+fn exchange_stack_or_drop(
+    input_stack: &mut ItemStack,
     player: &crate::entity::player::Player,
     world: &std::sync::Arc<crate::world::World>,
-    mut stack: ItemStack,
+    gamemode: pumpkin_util::GameMode,
+    mut output_stack: ItemStack,
 ) {
-    let was_added = player.inventory.insert_stack_anywhere(&mut stack);
-    if !was_added && !stack.is_empty() {
-        world.drop_stack(&player.position().to_block_pos(), stack);
+    if gamemode == pumpkin_util::GameMode::Creative {
+        let has_item = {
+            let inv = player
+                .inventory
+                .main_inventory
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            inv.iter().any(|s| s.are_equal(&output_stack))
+        };
+        if !has_item {
+            let _ = player.inventory.insert_stack_anywhere(&mut output_stack);
+        }
+        return;
+    }
+
+    input_stack.decrement(1);
+    if input_stack.is_empty() {
+        *input_stack = output_stack;
+    } else {
+        let was_added = player.inventory.insert_stack_anywhere(&mut output_stack);
+        if !was_added && !output_stack.is_empty() {
+            world.drop_stack(&player.position().to_block_pos(), output_stack);
+        }
     }
 }
 
@@ -97,8 +127,13 @@ impl BlockBehaviour for CauldronBlock {
                     SoundCategory::Blocks,
                     &args.position.to_f64(),
                 );
-                args.item_stack.decrement_unless_creative(gamemode, 1);
-                give_item_or_drop(args.player, args.world, &Item::BUCKET);
+                exchange_item_or_drop(
+                    args.item_stack,
+                    args.player,
+                    args.world,
+                    gamemode,
+                    &Item::BUCKET,
+                );
                 args.player.increment_stat(
                     pumpkin_data::statistic::StatisticCategory::Custom,
                     pumpkin_data::statistic::CustomStatistic::FillCauldron as i32,
@@ -116,8 +151,13 @@ impl BlockBehaviour for CauldronBlock {
                     SoundCategory::Blocks,
                     &args.position.to_f64(),
                 );
-                args.item_stack.decrement_unless_creative(gamemode, 1);
-                give_item_or_drop(args.player, args.world, &Item::BUCKET);
+                exchange_item_or_drop(
+                    args.item_stack,
+                    args.player,
+                    args.world,
+                    gamemode,
+                    &Item::BUCKET,
+                );
                 args.player.increment_stat(
                     pumpkin_data::statistic::StatisticCategory::Custom,
                     pumpkin_data::statistic::CustomStatistic::FillCauldron as i32,
@@ -135,8 +175,13 @@ impl BlockBehaviour for CauldronBlock {
                     SoundCategory::Blocks,
                     &args.position.to_f64(),
                 );
-                args.item_stack.decrement_unless_creative(gamemode, 1);
-                give_item_or_drop(args.player, args.world, &Item::BUCKET);
+                exchange_item_or_drop(
+                    args.item_stack,
+                    args.player,
+                    args.world,
+                    gamemode,
+                    &Item::BUCKET,
+                );
                 args.player.increment_stat(
                     pumpkin_data::statistic::StatisticCategory::Custom,
                     pumpkin_data::statistic::CustomStatistic::FillCauldron as i32,
@@ -154,8 +199,13 @@ impl BlockBehaviour for CauldronBlock {
                     SoundCategory::Blocks,
                     &args.position.to_f64(),
                 );
-                args.item_stack.decrement_unless_creative(gamemode, 1);
-                give_item_or_drop(args.player, args.world, &Item::GLASS_BOTTLE);
+                exchange_item_or_drop(
+                    args.item_stack,
+                    args.player,
+                    args.world,
+                    gamemode,
+                    &Item::GLASS_BOTTLE,
+                );
                 args.player.increment_stat(
                     pumpkin_data::statistic::StatisticCategory::Custom,
                     pumpkin_data::statistic::CustomStatistic::UseCauldron as i32,
@@ -198,8 +248,13 @@ impl BlockBehaviour for CauldronBlock {
                 );
                 args.world
                     .play_sound(sound, SoundCategory::Blocks, &args.position.to_f64());
-                args.item_stack.decrement_unless_creative(gamemode, 1);
-                give_item_or_drop(args.player, args.world, result_item);
+                exchange_item_or_drop(
+                    args.item_stack,
+                    args.player,
+                    args.world,
+                    gamemode,
+                    result_item,
+                );
                 args.player.increment_stat(
                     pumpkin_data::statistic::StatisticCategory::Custom,
                     pumpkin_data::statistic::CustomStatistic::UseCauldron as i32,
@@ -225,8 +280,13 @@ impl BlockBehaviour for CauldronBlock {
                         SoundCategory::Blocks,
                         &args.position.to_f64(),
                     );
-                    args.item_stack.decrement_unless_creative(gamemode, 1);
-                    give_item_or_drop(args.player, args.world, &Item::GLASS_BOTTLE);
+                    exchange_item_or_drop(
+                        args.item_stack,
+                        args.player,
+                        args.world,
+                        gamemode,
+                        &Item::GLASS_BOTTLE,
+                    );
                     args.player.increment_stat(
                         pumpkin_data::statistic::StatisticCategory::Custom,
                         pumpkin_data::statistic::CustomStatistic::UseCauldron as i32,
@@ -258,10 +318,11 @@ impl BlockBehaviour for CauldronBlock {
                         SoundCategory::Blocks,
                         &args.position.to_f64(),
                     );
-                    args.item_stack.decrement_unless_creative(gamemode, 1);
-                    give_stack_or_drop(
+                    exchange_stack_or_drop(
+                        args.item_stack,
                         args.player,
                         args.world,
+                        gamemode,
                         crate::item::items::glass_bottle::water_bottle(),
                     );
                     args.player.increment_stat(

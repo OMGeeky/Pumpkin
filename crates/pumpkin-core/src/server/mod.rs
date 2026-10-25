@@ -1157,6 +1157,7 @@ impl Server {
 
     fn flush_pending_block_updates(&self) {
         for world in self.worlds.load().iter() {
+            world.flush_synced_block_events();
             world.flush_block_updates();
         }
     }

@@ -5,7 +5,8 @@ use crate::block::entities::bell::BellBlockEntity;
 use crate::block::registry::BlockActionResult;
 use crate::block::{
     BlockBehaviour, BlockHitResult, BrokenArgs, CanPlaceAtArgs, NormalUseArgs,
-    OnNeighborUpdateArgs, OnPlaceArgs, OnProjectileHitArgs, PathComputationType, PlacedArgs,
+    OnNeighborUpdateArgs, OnPlaceArgs, OnProjectileHitArgs, OnSyncedBlockEventArgs,
+    PathComputationType, PlacedArgs,
 };
 use crate::world::World;
 use pumpkin_data::block_properties::HorizontalFacing;
@@ -48,6 +49,7 @@ fn ring_bell(
         && let Some(be) = block_entity.as_any().downcast_ref::<BellBlockEntity>()
     {
         be.activate(direction);
+        world.add_synced_block_event(position, 1, direction.to_block_direction().to_index());
     }
 
     world.play_sound_fine(
@@ -137,6 +139,10 @@ impl BlockBehaviour for BellBlock {
     fn placed(&self, args: PlacedArgs<'_>) {
         args.world
             .add_block_entity(Arc::new(BellBlockEntity::new(*args.position)));
+    }
+
+    fn on_synced_block_event(&self, args: OnSyncedBlockEventArgs<'_>) -> bool {
+        args.r#type == 1
     }
     fn normal_use(&self, args: NormalUseArgs<'_>) -> BlockActionResult {
         let state = args.world.get_block_state(args.position);
