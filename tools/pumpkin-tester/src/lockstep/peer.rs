@@ -1274,20 +1274,19 @@ fn pick_free_port() -> Result<u16, String> {
 }
 
 fn resolve_java_binary() -> PathBuf {
-    let candidates = [
-        "/usr/lib/jvm/java-26-openjdk/bin/java",
-        "/usr/lib/jvm/java-21-openjdk/bin/java",
-    ];
-    for c in candidates {
-        let p = Path::new(c);
-        if p.exists() {
-            return p.to_path_buf();
+    let args: Vec<String> = std::env::args().collect();
+    for window in args.windows(2) {
+        if (window[0] == "--lockstep-java-bin" || window[0] == "--parity-java-bin")
+            && !window[1].trim().is_empty()
+        {
+            return PathBuf::from(&window[1]);
         }
     }
-    if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        let p = Path::new(&java_home).join("bin/java");
-        if p.exists() {
-            return p;
+    for env_var in ["PUMPKIN_LOCKSTEP_JAVA_BIN", "PUMPKIN_PARITY_JAVA_BIN"] {
+        if let Ok(val) = std::env::var(env_var)
+            && !val.trim().is_empty()
+        {
+            return PathBuf::from(val);
         }
     }
     PathBuf::from("java")
