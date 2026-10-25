@@ -28,6 +28,8 @@ pub struct SClientInformationConfig<'a> {
     pub text_filtering: bool,
     /// Whether the player should appear in the server's online player list
     pub server_listing: bool,
+    /// Client particle rendering level (0: All, 1: Decreased, 2: Minimal)
+    pub particle_status: VarInt,
 }
 
 impl<'a> ServerPacket<'a> for SClientInformationConfig<'a> {
@@ -52,6 +54,11 @@ impl<'a> ServerPacket<'a> for SClientInformationConfig<'a> {
         } else {
             true
         };
+        let particle_status = if version >= &JavaMinecraftVersion::V_1_21_2 {
+            bytebuf.get_var_int()?
+        } else {
+            VarInt(0)
+        };
 
         Ok(Self {
             locale,
@@ -62,6 +69,7 @@ impl<'a> ServerPacket<'a> for SClientInformationConfig<'a> {
             main_hand,
             text_filtering,
             server_listing,
+            particle_status,
         })
     }
 }
@@ -87,6 +95,38 @@ impl crate::ClientPacket for SClientInformationConfig<'_> {
         if version >= &JavaMinecraftVersion::V_1_18 {
             write.write_bool(self.server_listing)?;
         }
+        if version >= &JavaMinecraftVersion::V_1_21_2 {
+            write.write_var_int(&self.particle_status)?;
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ClientPacket;
+
+    #[test]
+    fn client_information_config_roundtrip_particle_status() {
+        let pkt = SClientInformationConfig {
+            locale: "en_us",
+            view_distance: 8,
+            chat_mode: VarInt(0),
+            chat_colors: true,
+            skin_parts: 0x7F,
+            main_hand: VarInt(1),
+            text_filtering: false,
+            server_listing: true,
+            particle_status: VarInt(2),
+        };
+        let mut buf = Vec::new();
+        pkt.write_packet_data(&mut buf, &JavaMinecraftVersion::V_26_3)
+            .unwrap();
+        let mut slice = &buf[..];
+        let decoded =
+            SClientInformationConfig::read(&mut slice, &JavaMinecraftVersion::V_26_3).unwrap();
+        assert!(slice.is_empty());
+        assert_eq!(decoded.particle_status, VarInt(2));
     }
 }

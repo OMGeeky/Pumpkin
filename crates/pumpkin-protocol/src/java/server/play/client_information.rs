@@ -18,6 +18,7 @@ pub struct SClientInformationPlay<'a> {
     pub main_hand: VarInt,
     pub text_filtering: bool,
     pub server_listing: bool,
+    pub particle_status: VarInt,
 }
 
 impl<'a> ServerPacket<'a> for SClientInformationPlay<'a> {
@@ -42,6 +43,11 @@ impl<'a> ServerPacket<'a> for SClientInformationPlay<'a> {
         } else {
             true
         };
+        let particle_status = if version >= &JavaMinecraftVersion::V_1_21_2 {
+            bytebuf.get_var_int()?
+        } else {
+            VarInt(0)
+        };
 
         Ok(Self {
             locale,
@@ -52,6 +58,7 @@ impl<'a> ServerPacket<'a> for SClientInformationPlay<'a> {
             main_hand,
             text_filtering,
             server_listing,
+            particle_status,
         })
     }
 }
@@ -76,6 +83,9 @@ impl crate::ClientPacket for SClientInformationPlay<'_> {
         }
         if version >= &JavaMinecraftVersion::V_1_18 {
             write.write_bool(self.server_listing)?;
+        }
+        if version >= &JavaMinecraftVersion::V_1_21_2 {
+            write.write_var_int(&self.particle_status)?;
         }
         Ok(())
     }

@@ -37,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
 use crate::{
-    entity::player::ChatMode,
+    entity::player::{ChatMode, ParticleStatus},
     net::{
         EncryptionError, GameProfile, PacketHandlerResult, PacketRateLimiter, PlayerConfig,
         can_not_join,
@@ -571,9 +571,10 @@ impl PendingConnection {
             return;
         }
 
-        if let (Ok(main_hand), Ok(chat_mode)) = (
+        if let (Ok(main_hand), Ok(chat_mode), Ok(particle_status)) = (
             Hand::try_from(client_information.main_hand.0),
             ChatMode::try_from(client_information.chat_mode.0),
+            ParticleStatus::try_from(client_information.particle_status.0),
         ) {
             self.config = Some(PlayerConfig {
                 locale: client_information.locale.to_string(),
@@ -585,10 +586,13 @@ impl PendingConnection {
                 main_hand,
                 text_filtering: client_information.text_filtering,
                 server_listing: client_information.server_listing,
+                particle_status,
             });
         } else {
-            self.kick(TextComponent::text("Invalid hand or chat type"))
-                .await;
+            self.kick(TextComponent::text(
+                "Invalid hand, chat type, or particle status",
+            ))
+            .await;
         }
     }
 

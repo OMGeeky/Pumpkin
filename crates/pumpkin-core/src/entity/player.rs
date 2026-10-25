@@ -7420,6 +7420,33 @@ impl TryFrom<i32> for ChatMode {
     }
 }
 
+/// Represents the player's particle visibility status settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParticleStatus {
+    /// All particles are rendered.
+    #[default]
+    All,
+    /// Decreased particle count is rendered.
+    Decreased,
+    /// Minimal particles are rendered.
+    Minimal,
+}
+
+pub struct InvalidParticleStatus;
+
+impl TryFrom<i32> for ParticleStatus {
+    type Error = InvalidParticleStatus;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::All),
+            1 => Ok(Self::Decreased),
+            2 => Ok(Self::Minimal),
+            _ => Err(InvalidParticleStatus),
+        }
+    }
+}
+
 /// Player's current chat session
 pub struct ChatSession {
     pub session_id: uuid::Uuid,

@@ -1,5 +1,5 @@
 use crate::{
-    entity::player::ChatMode,
+    entity::player::{ChatMode, ParticleStatus},
     net::{bedrock::BedrockClient, java::JavaClient},
     server::Server,
 };
@@ -100,6 +100,8 @@ pub struct PlayerConfig {
     pub text_filtering: bool,
     /// Whether the player wants to appear in the server list.
     pub server_listing: bool,
+    /// The player's particle visibility status settings.
+    pub particle_status: ParticleStatus,
 }
 
 impl Default for PlayerConfig {
@@ -113,6 +115,7 @@ impl Default for PlayerConfig {
             main_hand: Hand::Right,
             text_filtering: false,
             server_listing: false,
+            particle_status: ParticleStatus::All,
         }
     }
 }

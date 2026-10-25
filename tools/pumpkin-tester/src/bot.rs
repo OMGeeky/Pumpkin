@@ -117,6 +117,7 @@ impl HeadlessBot {
             main_hand: VarInt(1),
             text_filtering: false,
             server_listing: true,
+            particle_status: VarInt(0),
         })
         .await?;
 
